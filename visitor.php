@@ -23,11 +23,13 @@ function http_request($url, $options = array()) {
 
   $data = curl_exec($ch);
   $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+  $content_type = curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
   curl_close($ch);
 
   $result = array();
   $result['data'] = $data;
   $result['code'] = $code;
+  $result['content_type'] = $content_type;
 
   return $result;
 }
@@ -75,11 +77,7 @@ function collect_urls($page_html, $page_url, $options = array()) {
         }
 
         $match_domain = $match_parsed['scheme'] . '://' . $match_parsed['host'];
-
-        $match_assembled = $match_parsed['scheme'] . '://' . $match_parsed['host'] . $match_parsed['path'];
-        if (isset($match_parsed['query'])) {
-          $match_assembled .= '?' . $match_parsed['query'];
-        }
+        $match_assembled = assemble_url($match_parsed);
 
         $result[] = array('url' => $match_assembled, 'collect' => ($options['stay_in_domain'] && $match_domain == $domain));
       }
@@ -87,6 +85,15 @@ function collect_urls($page_html, $page_url, $options = array()) {
   }
 
   return $result;
+}
+
+function assemble_url($parsed) {
+  $assembled = $parsed['scheme'] . '://' . $parsed['host'] . $parsed['path'];
+  if (isset($parsed['query'])) {
+    $assembled .= '?' . str_replace('&amp;', '&', $parsed['query']);
+  }
+
+  return $assembled;
 }
 
 function format_url($format, $url, $data) {
@@ -124,7 +131,6 @@ $start = $argv[$argc - 1];
 $start_parsed = parse_url($start);
 $start_parsed += array('scheme' => 'http', 'path' => '');
 
-$start = $start_parsed['scheme'] . '://' . $start_parsed['host'] . $start_parsed['path'];
 $root = $start_parsed['scheme'] . '://' . $start_parsed['host'];
 
 $visited = array();
@@ -144,15 +150,17 @@ while (!empty($queue)) {
 
   $visit = array();
   $visit['url'] = $url;
-  $visit['code'] = $response['code'];
   $visit['parents'] = join(' --> ', $url_data['parents']);
+  $visit += $response;
 
   $visited[$url] = $visit;
 
   print format_url($format, $url, $visit);
   print PHP_EOL;
 
-  if ($url_data['collect'] && $response['code'] == 200) {
+  $is_web_page = (strpos($response['content_type'], 'text/html') === 0);
+
+  if ($response['code'] == 200 && $is_web_page && $url_data['collect']) {
     $urls = collect_urls($response['data'], $url);
 
     $new_parents = array_merge($url_data['parents'], array($url));
