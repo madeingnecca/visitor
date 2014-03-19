@@ -48,10 +48,6 @@ function collect_urls($page_html, $page_url, $options = array()) {
         }
 
         $match_parsed = parse_url($match);
-
-        // var_dump($match);
-        // var_dump($match_parsed);
-
         $match_parsed += array('path' => '');
 
         if (!isset($match_parsed['scheme']) && !isset($match_parsed['host'])) {
