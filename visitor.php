@@ -12,7 +12,7 @@ function http_request($url, $options = array()) {
   $options += array('auth' => FALSE);
 
   $ch = curl_init();
-  curl_setopt($ch, CURLOPT_HEADER, 0);
+  curl_setopt($ch, CURLOPT_HEADER, TRUE);
   curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
   curl_setopt($ch, CURLOPT_URL, $url);
   curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, FALSE);
@@ -24,16 +24,42 @@ function http_request($url, $options = array()) {
   }
 
   $data = curl_exec($ch);
+  $headers_size = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
   $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
   $content_type = curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
   curl_close($ch);
+
+  $headers_string = substr($data, 0, $headers_size);
+  $data = substr($data, $headers_size);
+  $headers = http_request_parse_headers($headers_string);
 
   $result = array();
   $result['data'] = $data;
   $result['code'] = $code;
   $result['content_type'] = $content_type;
+  $result['headers'] = $headers;
 
   return $result;
+}
+
+function http_request_parse_headers($headers_string) {
+  $default_headers = array('location' => '');
+  $headers = $default_headers;
+  $lines = preg_split('/\r\n/', trim($headers_string));
+  $first = array_shift($lines);
+  foreach ($lines as $line) {
+    if (preg_match('/^(.*?): (.*)/', $line, $matches)) {
+      $header_name = strtolower($matches[1]);
+      $header_val = $matches[2];
+      $headers[$header_name] = $header_val;
+    }
+  }
+
+  if (!isset($headers['status'])) {
+    $headers['status'] = $first;
+  }
+
+  return $headers;
 }
 
 function collect_urls($page_html, $page_url, $options = array()) {
@@ -101,7 +127,14 @@ function assemble_url($parsed) {
 function format_url($format, $url, $data) {
   $result = $format;
   foreach ($data as $key => $value) {
-    $result = str_replace('%' . $key, $value, $result);
+    if (is_array($value)) {
+      foreach ($value as $k => $v) {
+        $result = str_replace('%' . $key . ':' . $k, $v, $result);
+      }
+    }
+    else {
+      $result = str_replace('%' . $key, $value, $result);
+    }
   }
 
   return $result;
