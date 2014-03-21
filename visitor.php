@@ -1,6 +1,8 @@
 <?php
 
-function show_help() {}
+function show_help() {
+  print "One day this will be a very helpful help.\n";
+}
 
 function http_request($url, $options = array()) {
   if (!extension_loaded('curl')) {
@@ -106,26 +108,31 @@ function format_url($format, $url, $data) {
 }
 
 if (php_sapi_name() != 'cli') {
-  die('No CLI no party.');
+  die('No CLI, no party.');
 }
 
-if ($argc == 1) {
-  show_help();
-  die();
-}
-
+$pcount = $argc - 1;
 $options = getopt('u:f:');
 $format = '%url';
 $auth = FALSE;
 
-if (isset($options['f']) && $options['f']) {
-  $format = $options['f'];
+foreach ($options as $opt => $value) {
+  if ($value) {
+    $pcount -= 2;
+
+    switch ($opt) {
+      case 'f': $format = $value; break;
+      case 'u': $auth = $value; break;
+    }
+  }
 }
 
-if (isset($options['u']) && $options['u']) {
-  $auth = $options['u'];
+if ($pcount < 1) {
+  show_help();
+  die();
 }
 
+// Start url is always the last parameter.
 $start = $argv[$argc - 1];
 
 $start_parsed = parse_url($start);
@@ -156,10 +163,12 @@ while (!empty($queue)) {
   $visited[$url] = $visit;
 
   print format_url($format, $url, $visit);
-  print PHP_EOL;
+  print "\n";
 
   $is_web_page = (strpos($response['content_type'], 'text/html') === 0);
 
+  // Collect urls only if it was a successful response, a page containing html
+  // and collection was requested.
   if ($response['code'] == 200 && $is_web_page && $url_data['collect']) {
     $urls = collect_urls($response['data'], $url);
 
