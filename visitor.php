@@ -1,7 +1,12 @@
 <?php
 
-function show_help() {
-  print "One day this will be a very helpful help.\n";
+function show_usage() {
+  global $argv;
+  print "Usage: \n";
+  print $argv[0] . " [-f -u] <url>\n";
+  print "  -f: String to output whenever a new url is collected. \n";
+  print "    Available variables: %code, %content_type, %headers:XYZ\n";
+  print "  -u: Authentication credentials, <user>:<pass>\n";
 }
 
 function http_request($url, $options = array()) {
@@ -9,7 +14,10 @@ function http_request($url, $options = array()) {
     die('CURL library must be installed to download files.');
   }
 
-  $options += array('auth' => FALSE);
+  $options += array(
+    'auth' => FALSE,
+    'user-agent' => 'Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.8.1.13) Gecko/20080311 Firefox/2.0.0.13',
+  );
 
   $ch = curl_init();
   curl_setopt($ch, CURLOPT_HEADER, TRUE);
@@ -17,6 +25,7 @@ function http_request($url, $options = array()) {
   curl_setopt($ch, CURLOPT_URL, $url);
   curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, FALSE);
   curl_setopt($ch, CURLOPT_FOLLOWLOCATION, TRUE);
+  curl_setopt($ch, CURLOPT_USERAGENT, $options['user-agent']);
 
   if ($options['auth']) {
     curl_setopt($ch, CURLOPT_USERPWD, $options['auth']);
@@ -93,11 +102,10 @@ function collect_urls($page_html, $page_url, $options = array()) {
         $match_parsed += array('path' => '');
 
         // Other kind of relative urls.
-        // @TODO: implement directory traversal.
         if (!isset($match_parsed['scheme']) && !isset($match_parsed['host'])) {
           $match_parsed['scheme'] = $url_parsed['scheme'];
           $match_parsed['host'] = $url_parsed['host'];
-          $match_parsed['path'] = $url_base . '/' . $match_parsed['path'];
+          $match_parsed['path'] = resolve_relative_url($url_base, $match_parsed['path']);
         }
 
         if (!in_array($match_parsed['scheme'], $options['protocols'])) {
@@ -113,6 +121,22 @@ function collect_urls($page_html, $page_url, $options = array()) {
   }
 
   return $result;
+}
+
+function resolve_relative_url($base_path, $rel_path) {
+  $base_path_parts = explode('/', $base_path);
+  $rel_path_parts = explode('/', $rel_path);
+  foreach ($rel_path_parts as $rel_part) {
+    if ($rel_part == '.') {
+      array_shift($rel_path_parts);
+    }
+    else if ($rel_part == '..') {
+      array_pop($base_path_parts);
+      array_shift($rel_path_parts);
+    }
+  }
+
+  return join('/', array_merge($base_path_parts, $rel_path_parts));
 }
 
 function assemble_url($parsed) {
@@ -150,8 +174,10 @@ $format = '%url';
 $auth = FALSE;
 
 foreach ($options as $opt => $value) {
+  $pcount --;
+
   if ($value) {
-    $pcount -= 2;
+    $pcount --;
 
     switch ($opt) {
       case 'f': $format = $value; break;
@@ -160,8 +186,8 @@ foreach ($options as $opt => $value) {
   }
 }
 
-if ($pcount < 1) {
-  show_help();
+if ($pcount != 1) {
+  show_usage();
   die();
 }
 
