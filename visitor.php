@@ -17,6 +17,7 @@ function http_request($url, $options = array()) {
   $options += array(
     'auth' => FALSE,
     'user-agent' => 'Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.8.1.13) Gecko/20080311 Firefox/2.0.0.13',
+    'max-redirects' => 100,
   );
 
   $ch = curl_init();
@@ -25,6 +26,7 @@ function http_request($url, $options = array()) {
   curl_setopt($ch, CURLOPT_URL, $url);
   curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, FALSE);
   curl_setopt($ch, CURLOPT_FOLLOWLOCATION, TRUE);
+  curl_setopt($ch, CURLOPT_MAXREDIRS, $options['max-redirects']);
   curl_setopt($ch, CURLOPT_USERAGENT, $options['user-agent']);
 
   if ($options['auth']) {
@@ -36,6 +38,7 @@ function http_request($url, $options = array()) {
   $headers_size = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
   $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
   $content_type = curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+  $redirect_count = curl_getinfo($ch, CURLINFO_REDIRECT_COUNT);
   curl_close($ch);
 
   $headers_string = substr($data, 0, $headers_size);
@@ -43,10 +46,15 @@ function http_request($url, $options = array()) {
   $headers = http_request_parse_headers($headers_string);
 
   $result = array();
+  $result['error'] = '';
   $result['data'] = $data;
   $result['code'] = $code;
   $result['content_type'] = $content_type;
   $result['headers'] = $headers;
+
+  if ($redirect_count == $options['max-redirects']) {
+    $result['error'] = 'infinite-loop';
+  }
 
   return $result;
 }
