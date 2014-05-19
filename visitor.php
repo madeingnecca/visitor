@@ -7,6 +7,7 @@ function show_usage() {
   print "  -f: String to output whenever a new url is collected. \n";
   print "    Available variables: %code, %content_type, %headers:XYZ\n";
   print "  -u: Authentication credentials, <user>:<pass>\n";
+  print "  -p: Preset name. Choose between: " . (join(', ', array_keys(preset_list()))) . "\n";
 }
 
 function http_request($url, $options = array()) {
@@ -287,7 +288,7 @@ while (!empty($queue)) {
     continue;
   }
 
-  $response = http_request($url, array_merge($params['http'], array('auth' => $params['format'])));
+  $response = http_request($url, $params['http']);
 
   $visit = array();
   $visit['url'] = $url;
