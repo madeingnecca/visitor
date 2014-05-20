@@ -11,17 +11,40 @@ function show_usage() {
 }
 
 function http_request($url, $options = array()) {
-  if (!extension_loaded('curl')) {
-    die('CURL library must be installed to download files.');
-  }
-
   $options += array(
     'auth' => FALSE,
-    'user-agent' => 'Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.8.1.13) Gecko/20080311 Firefox/2.0.0.13',
-    'max-redirects' => 15,
+    'user_agent' => 'Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.8.1.13) Gecko/20080311 Firefox/2.0.0.13',
+    'max_redirects' => 15,
     'method' => 'GET',
+    'follow_redirects' => TRUE,
   );
 
+  if (!$options['follow_redirects']) {
+    $options['max_redirects'] = 0;
+  }
+
+  $redirects_count = 0;
+  $redirects = array();
+  $location = $url;
+  while (($response = curl_http_request($location, $options)) && $response['is_redirect'] && ($redirects_count < $options['max_redirects'])) {
+    $redirects[] = $response;
+    $redirects_count++;
+    $location = $response['headers']['location'];
+  }
+
+  $result = $response;
+  $result['redirects'] = $redirects;
+  $result['redirects_count'] = $redirects_count;
+  $result['last_redirect'] = ($redirects_count > 0 ? $location : FALSE);
+
+  if ($redirects_count > 0 && $redirects_count >= $options['max_redirects']) {
+    $result['error'] = 'infinite-loop';
+  }
+
+  return $result;
+}
+
+function curl_http_request($url, $options = array()) {
   $method = strtoupper($options['method']);
 
   $ch = curl_init();
@@ -29,29 +52,29 @@ function http_request($url, $options = array()) {
   curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
   curl_setopt($ch, CURLOPT_URL, $url);
   curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, FALSE);
-  curl_setopt($ch, CURLOPT_FOLLOWLOCATION, TRUE);
-  curl_setopt($ch, CURLOPT_MAXREDIRS, $options['max-redirects']);
-  curl_setopt($ch, CURLOPT_USERAGENT, $options['user-agent']);
+
+  if ($method == 'HEAD') {
+    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
+    curl_setopt($ch, CURLOPT_NOBODY, TRUE);
+  }
+
+  curl_setopt($ch, CURLOPT_USERAGENT, $options['user_agent']);
 
   if ($options['auth']) {
     curl_setopt($ch, CURLOPT_USERPWD, $options['auth']);
     curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
   }
 
-  if ($method != 'GET' && $method != 'POST') {
-    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
-  }
-
   $data = curl_exec($ch);
   $headers_size = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
   $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
   $content_type = curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
-  $redirect_count = curl_getinfo($ch, CURLINFO_REDIRECT_COUNT);
   curl_close($ch);
 
   $headers_string = substr($data, 0, $headers_size);
   $data = substr($data, $headers_size);
   $headers = http_request_parse_headers($headers_string);
+  $is_redirect = (in_array($code, array(301, 302)));
 
   $result = array();
   $result['error'] = '';
@@ -59,10 +82,8 @@ function http_request($url, $options = array()) {
   $result['code'] = $code;
   $result['content_type'] = $content_type;
   $result['headers'] = $headers;
-
-  if ($redirect_count == $options['max-redirects']) {
-    $result['error'] = 'infinite-loop';
-  }
+  $result['is_redirect'] = $is_redirect;
+  $result['url'] = $url;
 
   return $result;
 }
@@ -89,26 +110,25 @@ function http_request_parse_headers($headers_string) {
 
 function collect_urls($page_html, $page_url, $options = array()) {
   $options += array(
-    'stay_in_domain' => TRUE,
+    'allow_external' => TRUE,
     'tags' => array('a' => array('href')),
     'protocols' => array('http'),
   );
 
-  $url_parsed = parse_url($page_url);
-  $url_parsed += array('scheme' => 'http', 'path' => '');
-  $url_base = dirname($url_parsed['path']);
-
-  $domain = $url_parsed['scheme'] . '://' . $url_parsed['host'];
+  $url_info = parse_url($page_url);
+  $url_info += array('scheme' => 'http', 'path' => '');
+  $url_root = $url_info['scheme'] . '://' . $url_info['host'];
 
   // List of collected urls.
   $result = array();
+  $found = array();
 
   // Parse the html document.
   $dom = new DOMDocument();
   libxml_use_internal_errors(TRUE);
 
+  // If unable to parse the html document, skip.
   $dom_loaded = $dom->loadHTML($page_html);
-
   if ($dom_loaded === FALSE) {
     return array();
   }
@@ -121,56 +141,63 @@ function collect_urls($page_html, $page_url, $options = array()) {
 
     foreach ($nodes as $node) {
       foreach ($attrs as $attr) {
-        $value = $node->getAttribute($attr);
-        $orig_value = $value;
-
-        if (empty($value)) {
-          continue;
-        }
-
-        if ($value[0] == '#') {
-          continue;
-        }
-
-        // Handle protocol-relative urls.
-        if (substr($value, 0, 2) == '//') {
-          $value = $url_parsed['scheme'] . ':' . $value;
-        }
-
-        // Handle root-relative.
-        if ($value[0] == '/') {
-          $value = $domain . $value;
-        }
-
-        $value_parsed = parse_url($value);
-        $value_parsed += array('path' => '');
-
-        // Other kind of relative urls.
-        if (!isset($value_parsed['scheme']) && !isset($value_parsed['host'])) {
-          $value_parsed['scheme'] = $url_parsed['scheme'];
-          $value_parsed['host'] = $url_parsed['host'];
-          $value_parsed['path'] = resolve_relative_url($url_base, $value_parsed['path']);
-        }
-
-        if (!in_array($value_parsed['scheme'], $options['protocols'])) {
-          continue;
-        }
-
-        $value_domain = $value_parsed['scheme'] . '://' . $value_parsed['host'];
-
-        $value_assembled = assemble_url($value_parsed);
-
-        $result[] = array('url' => $value_assembled, 'collect' => ($options['stay_in_domain'] && $value_domain == $domain));
+        $found[] = $node->getAttribute($attr);
       }
     }
   }
 
-  // Prevent DOMDocument log memory leak.
+  foreach ($found as $value) {
+    $orig_value = $value;
+
+    if (empty($value) || $value[0] == '#') {
+      continue;
+    }
+
+    $value_info = parse_relative_url($value, $url_info);
+
+    if (!in_array($value_info['scheme'], $options['protocols'])) {
+      continue;
+    }
+
+    $value_assembled = assemble_url($value_info);
+
+    $collect = $options['allow_external'] || ($value_info['host'] == $url_info['host']);
+
+    $result[] = array('url' => $value_assembled, 'collect' => $collect);
+  }
+
+  // Prevents DOMDocument memory leaks caused by internal logs.
   // http://stackoverflow.com/questions/8379829/domdocument-php-memory-leak
   unset($dom);
   libxml_use_internal_errors(FALSE);
 
   return $result;
+}
+
+function parse_relative_url($url, $from_info) {
+  $from_base = dirname($from_info['path']);
+  $from_root = $from_info['scheme'] . '://' . $from_info['host'];
+
+  // Handle protocol-relative urls.
+  if (substr($url, 0, 2) == '//') {
+    $url = $from_info['scheme'] . ':' . $url;
+  }
+  else if ($url[0] == '/') {
+    // Handle root-relative.
+    $url = $from_root . $url;
+  }
+
+  $url_info = parse_url($url);
+  $url_info += array('path' => '');
+
+  // Other kind of relative urls.
+  if (!isset($url_info['scheme']) && !isset($url_info['host'])) {
+    $url_info['scheme'] = $from_info['scheme'];
+    $url_info['host'] = $from_info['host'];
+    $url_info['path'] = resolve_relative_url($from_base, $url_info['path']);
+  }
+
+  return $url_info;
 }
 
 function resolve_relative_url($base_path, $rel_path) {
@@ -190,7 +217,7 @@ function resolve_relative_url($base_path, $rel_path) {
 }
 
 function assemble_url($parsed) {
-  $assembled = $parsed['scheme'] . '://' . rtrim($parsed['host'], '/') . '/' . ltrim($parsed['path'], '/');
+  $assembled = $parsed['scheme'] . '://' . rtrim($parsed['host'], '/\\') . '/' . ltrim($parsed['path'], '/\\');
   if (isset($parsed['query'])) {
     $assembled .= '?' . str_replace('&amp;', '&', $parsed['query']);
   }
@@ -198,16 +225,22 @@ function assemble_url($parsed) {
   return $assembled;
 }
 
-function format_url($format, $url, $data) {
+function format_url($format, $data) {
   $result = $format;
-  foreach ($data as $key => $value) {
-    if (is_array($value)) {
-      foreach ($value as $k => $v) {
-        $result = str_replace('%' . $key . ':' . $k, $v, $result);
+  if (preg_match_all('/%([^\s]+)/', $format, $matches)) {
+    foreach ($matches[1] as $key) {
+      if (isset($data[$key])) {
+        $value = $data[$key];
+
+        if (is_array($value)) {
+          foreach ($value as $k => $v) {
+            $result = str_replace('%' . $key . ':' . $k, $v, $result);
+          }
+        }
+        else {
+          $result = str_replace('%' . $key, $value, $result);
+        }
       }
-    }
-    else {
-      $result = str_replace('%' . $key, $value, $result);
     }
   }
 
@@ -266,18 +299,20 @@ if (!isset($presets[$preset_name])) {
 }
 
 $params = array_merge($presets[$preset_name], $params);
+$params['collect'] += array('allow_external' => FALSE);
 
 // Start url is always the last parameter.
 $start = $argv[$argc - 1];
 
-$start_parsed = parse_url($start);
-$start_parsed += array('scheme' => 'http', 'path' => '');
-
-$root = $start_parsed['scheme'] . '://' . $start_parsed['host'];
+$start_info = parse_url($start);
+$start_info += array('scheme' => 'http', 'path' => '');
 
 $visited = array();
 $queue = array();
 $queue[] = array('url' => $start);
+
+// No time limit.
+set_time_limit(0);
 
 while (!empty($queue)) {
   $url_data = array_pop($queue);
@@ -288,30 +323,74 @@ while (!empty($queue)) {
     continue;
   }
 
-  $response = http_request($url, $params['http']);
-
   $visit = array();
-  $visit['url'] = $url;
   $visit['parents'] = join(' --> ', $url_data['parents']);
   $visit['referrer'] = end($url_data['parents']);
-  $visit += $response;
 
-  $visited[$url] = $visit;
+  // Try to fetch with HEAD first. In this way if the file is not a web page we avoid
+  // the download of unnecessary data.
+  $fetch = TRUE;
+  $response_head = http_request($url, array_merge($params['http'], array('method' => 'HEAD', 'follow_redirects' => FALSE)));
 
-  print format_url($params['format'], $url, $visit);
-  print "\n";
+  if ($response_head['code'] == 200) {
+    $fetch = (strpos($response_head['content_type'], 'text/html') === 0);
+  }
 
-  $is_web_page = (strpos($response['content_type'], 'text/html') === 0);
+  if (!$fetch) {
+    $visit += $response_head;
 
-  // Collect urls only if it was a successful response, a page containing html
-  // and collection was requested.
-  if ($response['code'] == 200 && $is_web_page && $url_data['collect']) {
-    $urls = collect_urls($response['data'], $url, $params['collect']);
+    print format_url($params['format'], $visit);
+    print "\n";
+  }
+  else {
+    $response = http_request($url, $params['http']);
 
-    $new_parents = array_merge($url_data['parents'], array($url));
-    foreach ($urls as $collected) {
-      $collected += array('parents' => $new_parents);
-      $queue[] = $collected;
+    $collect = $url_data['collect'];
+    if ($response['redirects_count'] == 0) {
+      $visit += $response;
+      $visited[$url] = $visit;
+    }
+    else {
+      foreach ($response['redirects'] as $redirect_response) {
+        $redirect_data = $visit + $redirect_response;
+        $redirect_data['url'] = $redirect_response['url'];
+
+        print format_url($params['format'], $redirect_data);
+        print "\n";
+      }
+
+      $visit += $response;
+      $last_redirect_info = parse_relative_url($response['url'], $start_info);
+      $last_redirect_url = assemble_url($last_redirect_info);
+
+      if (isset($visited[$last_redirect_url])) {
+        $collect = FALSE;
+      }
+      else {
+        $visited[$last_redirect_url] = $visit;
+
+        $collect_redirect = $params['collect']['allow_external'] || ($last_redirect_info['host'] == $start_info['host']);
+        $collect = $collect && $collect_redirect;
+      }
+    }
+
+    print format_url($params['format'], $visit);
+    print "\n";
+
+    $is_web_page = (strpos($response['content_type'], 'text/html') === 0);
+
+    // Collect urls only if it was a successful response, a page containing html
+    // and collection was requested.
+    if ($response['code'] == 200 && $is_web_page && $collect) {
+      $urls = collect_urls($response['data'], $url, $params['collect']);
+
+      $new_parents = array_merge($url_data['parents'], array($url));
+      foreach ($urls as $collected) {
+        $collected += array('parents' => $new_parents);
+        $queue[] = $collected;
+      }
     }
   }
+
+  $visited[$url] = $visit;
 }
