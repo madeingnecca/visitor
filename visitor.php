@@ -62,7 +62,6 @@ function curl_http_request($url, $options = array()) {
 
   if ($options['auth']) {
     curl_setopt($ch, CURLOPT_USERPWD, $options['auth']);
-    curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
   }
 
   $data = curl_exec($ch);
@@ -109,6 +108,10 @@ function http_request_parse_headers($headers_string) {
 }
 
 function collect_urls($page_html, $page_url, $options = array()) {
+  if (strlen($page_html) == 0) {
+    return array();
+  }
+
   $options += array(
     'allow_external' => TRUE,
     'tags' => array('a' => array('href')),
@@ -126,6 +129,8 @@ function collect_urls($page_html, $page_url, $options = array()) {
   // Parse the html document.
   $dom = new DOMDocument();
   libxml_use_internal_errors(TRUE);
+
+  // var_dump(strlen($page_html));
 
   // If unable to parse the html document, skip.
   $dom_loaded = $dom->loadHTML($page_html);
@@ -154,6 +159,10 @@ function collect_urls($page_html, $page_url, $options = array()) {
     }
 
     $value_info = parse_relative_url($value, $url_info);
+
+    if ($value_info === FALSE) {
+      continue;
+    }
 
     if (!in_array($value_info['scheme'], $options['protocols'])) {
       continue;
@@ -188,6 +197,10 @@ function parse_relative_url($url, $from_info) {
   }
 
   $url_info = parse_url($url);
+  if ($url_info === FALSE) {
+    return FALSE;
+  }
+
   $url_info += array('path' => '');
 
   // Other kind of relative urls.
@@ -227,21 +240,37 @@ function assemble_url($parsed) {
 
 function format_url($format, $data) {
   $result = $format;
+  $replacements = array();
   if (preg_match_all('/%([^\s]+)/', $format, $matches)) {
     foreach ($matches[1] as $key) {
       if (isset($data[$key])) {
-        $value = $data[$key];
+        $replacements[$key] = $data[$key];
+      }
+      else {
+        $cur = $data;
+        $target = $key;
 
-        if (is_array($value)) {
-          foreach ($value as $k => $v) {
-            $result = str_replace('%' . $key . ':' . $k, $v, $result);
+        while (preg_match('/^(.+?):(.+?)$/', $target, $sub_matches)) {
+          $new_key = $sub_matches[1];
+          $target = $sub_matches[2];
+
+          if (!isset($cur[$new_key])) {
+            $cur[$new_key] = '';
           }
+
+          $cur = $cur[$new_key];
         }
-        else {
-          $result = str_replace('%' . $key, $value, $result);
+
+        if ($target != $key) {
+          $cur = isset($cur[$target]) ? $cur[$target] : '';
+          $replacements[$key] = $cur;
         }
       }
     }
+  }
+
+  foreach ($replacements as $key => $value) {
+    $result = str_replace('%' . $key, $value, $result);
   }
 
   return $result;
@@ -267,7 +296,7 @@ if (php_sapi_name() != 'cli') {
 }
 
 $pcount = $argc - 1;
-$options = getopt('u:f:p');
+$options = getopt('u:f:p:');
 $params = array();
 
 $presets = preset_list();
@@ -281,7 +310,7 @@ foreach ($options as $opt => $value) {
 
     switch ($opt) {
       case 'f': $params['format'] = $value; break;
-      case 'u': $params['auth'] = $value; break;
+      case 'u': $params['auth'] = trim($value); break;
       case 'p': $preset_name = $value; break;
     }
   }
@@ -300,6 +329,9 @@ if (!isset($presets[$preset_name])) {
 
 $params = array_merge($presets[$preset_name], $params);
 $params['collect'] += array('allow_external' => FALSE);
+if (isset($params['auth'])) {
+  $params['http']['auth'] = $params['auth'];
+}
 
 // Start url is always the last parameter.
 $start = $argv[$argc - 1];
