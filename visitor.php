@@ -130,8 +130,6 @@ function collect_urls($page_html, $page_url, $options = array()) {
   $dom = new DOMDocument();
   libxml_use_internal_errors(TRUE);
 
-  // var_dump(strlen($page_html));
-
   // If unable to parse the html document, skip.
   $dom_loaded = $dom->loadHTML($page_html);
   if ($dom_loaded === FALSE) {
