@@ -173,8 +173,6 @@ function http_request_parse_cookie($cookie_data) {
     $cookie[$part_name] = $part[1];
   }
 
-  // var_dump($cookie);
-
   if (isset($cookie['expires'])) {
     $cookie['expires_time'] = strtotime($cookie['expires']);
   }
