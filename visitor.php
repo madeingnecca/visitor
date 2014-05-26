@@ -5,9 +5,25 @@ function show_usage() {
   print "Usage: \n";
   print $argv[0] . " [-f -u] <url>\n";
   print "  -f: String to output whenever a new url is collected. \n";
-  print "    Available variables: %code, %content_type, %headers:XYZ\n";
+  print "    Available variables: %url, %code, %content_type, %headers:XYZ\n";
   print "  -u: Authentication credentials, <user>:<pass>\n";
   print "  -p: Preset name. Choose between: " . (join(', ', array_keys(preset_list()))) . "\n";
+  print "  --cookies: Read all or specific cookies\n";
+}
+
+function requirements() {
+  if (php_sapi_name() != 'cli') {
+    die('PHP must work in cli mode.');
+  }
+
+  $min_php_version = '5.3.0';
+  if (version_compare(PHP_VERSION, $min_php_version) < 0) {
+    die("Minimum PHP version must be: $min_php_version.");
+  }
+
+  if (!extension_loaded('curl')) {
+    die('This script needs CURL extension to make HTTP requests.');
+  }
 }
 
 function http_request($url, $options = array()) {
@@ -17,6 +33,7 @@ function http_request($url, $options = array()) {
     'max_redirects' => 15,
     'method' => 'GET',
     'follow_redirects' => TRUE,
+    'cookies' => array(),
   );
 
   if (!$options['follow_redirects']) {
@@ -29,7 +46,7 @@ function http_request($url, $options = array()) {
   while (($response = curl_http_request($location, $options)) && $response['is_redirect'] && ($redirects_count < $options['max_redirects'])) {
     $redirects[] = $response;
     $redirects_count++;
-    $location = $response['headers']['location'];
+    $location = $response['headers']['location'][0];
   }
 
   $result = $response;
@@ -45,6 +62,7 @@ function http_request($url, $options = array()) {
 }
 
 function curl_http_request($url, $options = array()) {
+  $url_info = parse_url($url);
   $method = strtoupper($options['method']);
 
   $ch = curl_init();
@@ -64,6 +82,17 @@ function curl_http_request($url, $options = array()) {
     curl_setopt($ch, CURLOPT_USERPWD, $options['auth']);
   }
 
+  if (!empty($options['cookies'])) {
+    $_cookies = array();
+    foreach ($options['cookies'] as $cookie_name => $cookie_data) {
+      $cookie_value = !is_array($cookie_data) ? $cookie_data : $cookie_data['value'];
+      $_cookies[] = "$cookie_name=$cookie_value";
+    }
+
+    $cookies_string = join('; ', $_cookies);
+    curl_setopt($ch, CURLOPT_COOKIE, $cookies_string);
+  }
+
   $data = curl_exec($ch);
   $headers_size = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
   $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -75,6 +104,15 @@ function curl_http_request($url, $options = array()) {
   $headers = http_request_parse_headers($headers_string);
   $is_redirect = (in_array($code, array(301, 302)));
 
+  $cookies = array();
+  if (isset($headers['set-cookie'])) {
+    foreach ($headers['set-cookie'] as $cookie_data) {
+      $cookie = http_request_parse_cookie($cookie_data);
+      $cookie += array('domain' => $url_info['host']);
+      $cookies[$cookie['name']] = $cookie;
+    }
+  }
+
   $result = array();
   $result['error'] = '';
   $result['data'] = $data;
@@ -83,6 +121,7 @@ function curl_http_request($url, $options = array()) {
   $result['headers'] = $headers;
   $result['is_redirect'] = $is_redirect;
   $result['url'] = $url;
+  $result['cookies'] = $cookies;
 
   return $result;
 }
@@ -96,7 +135,11 @@ function http_request_parse_headers($headers_string) {
     if (preg_match('/^(.*?): (.*)/', $line, $matches)) {
       $header_name = strtolower($matches[1]);
       $header_val = $matches[2];
-      $headers[$header_name] = $header_val;
+      if (!isset($headers[$header_name])) {
+        $headers[$header_name] = array();
+      }
+
+      $headers[$header_name][] = $header_val;
     }
   }
 
@@ -105,6 +148,63 @@ function http_request_parse_headers($headers_string) {
   }
 
   return $headers;
+}
+
+function http_request_parse_cookie($cookie_data) {
+  $cookie = array(
+    'path' => '/',
+    'secure' => FALSE,
+    'httpdonly' => FALSE,
+  );
+
+  $exploded = explode('; ', $cookie_data);
+  $parts = array();
+  foreach ($exploded as $part) {
+    list($name, $value) = explode('=', $part) + array('', TRUE);
+    $parts[] = array($name, $value);
+  }
+
+  $first = array_shift($parts);
+  $cookie['name'] = $first[0];
+  $cookie['value'] = $first[1];
+
+  foreach ($parts as $part) {
+    $part_name = strtolower($part[0]);
+    $cookie[$part_name] = $part[1];
+  }
+
+  // var_dump($cookie);
+
+  if (isset($cookie['expires'])) {
+    $cookie['expires_time'] = strtotime($cookie['expires']);
+  }
+
+  return $cookie;
+}
+
+function cookie_matches($cookie, $query) {
+  if (isset($cookie['expires_time']) && $cookie['expires_time'] < $query['now']) {
+    return FALSE;
+  }
+
+  if ($cookie['secure'] && $query['scheme'] != 'https') {
+    return FALSE;
+  }
+
+  if (!preg_match('@^' . $cookie['path'] . '@', $query['path'])) {
+    return FALSE;
+  }
+
+  if (($query['domain'] == $cookie['domain']) || ('.' . $query['domain'] == $cookie['domain'])) {
+    return TRUE;
+  }
+
+  if ($cookie['domain'][0] == '.') {
+    $cookie_domain_regex = '@^.*?' . str_replace('.', '\.', $cookie['domain']) . '@';
+    return preg_match($cookie_domain_regex, $query['domain']);
+  }
+
+  return FALSE;
 }
 
 function collect_urls($page_html, $page_url, $options = array()) {
@@ -170,7 +270,7 @@ function collect_urls($page_html, $page_url, $options = array()) {
 
     $collect = $options['allow_external'] || ($value_info['host'] == $url_info['host']);
 
-    $result[] = array('url' => $value_assembled, 'collect' => $collect);
+    $result[] = array('url' => $value_assembled, 'collect' => $collect, 'url_info' => $url_info);
   }
 
   // Prevents DOMDocument memory leaks caused by internal logs.
@@ -289,28 +389,49 @@ function preset_list() {
   return $presets;
 }
 
-if (php_sapi_name() != 'cli') {
-  die('No CLI, no party.');
-}
+// Check for requirements first.
+requirements();
 
 $pcount = $argc - 1;
-$options = getopt('u:f:p:');
-$params = array();
+$console = getopt('u:f:p:', array(
+  'cookies::',
+));
+
+$params = array(
+  'cookies' => FALSE,
+);
 
 $presets = preset_list();
 $preset_name = 'health';
 
-foreach ($options as $opt => $value) {
-  $pcount --;
+foreach ($console as $opt => $value) {
+  $pcount--;
 
-  if ($value !== FALSE) {
-    $pcount --;
+  switch ($opt) {
+    case 'f':
+      $params['format'] = $value;
+      $pcount--;
+      break;
 
-    switch ($opt) {
-      case 'f': $params['format'] = $value; break;
-      case 'u': $params['auth'] = trim($value); break;
-      case 'p': $preset_name = $value; break;
-    }
+    case 'u':
+      $params['auth'] = trim($value);
+      $pcount--;
+      break;
+
+    case 'p':
+      $preset_name = $value;
+      $pcount--;
+      break;
+
+    case 'cookies':
+      if ($value) {
+        $params['cookies'] = $value;
+      }
+      else {
+        $params['cookies'] = '*';
+      }
+
+      break;
   }
 }
 
@@ -331,6 +452,8 @@ if (isset($params['auth'])) {
   $params['http']['auth'] = $params['auth'];
 }
 
+$cookies = array();
+
 // Start url is always the last parameter.
 $start = $argv[$argc - 1];
 
@@ -339,7 +462,7 @@ $start_info += array('scheme' => 'http', 'path' => '');
 
 $visited = array();
 $queue = array();
-$queue[] = array('url' => $start);
+$queue[] = array('url' => $start, 'url_info' => $start_info);
 
 // No time limit.
 set_time_limit(0);
@@ -348,6 +471,7 @@ while (!empty($queue)) {
   $url_data = array_pop($queue);
   $url_data += array('parents' => array(), 'collect' => TRUE, 'referrer' => '');
   $url = $url_data['url'];
+  $host = $url_data['url_info']['host'];
 
   if (isset($visited[$url])) {
     continue;
@@ -357,10 +481,31 @@ while (!empty($queue)) {
   $visit['parents'] = join(' --> ', $url_data['parents']);
   $visit['referrer'] = end($url_data['parents']);
 
+  // Find cookies we can send with this request.
+  $request_cookies = array();
+  $cookie_query = array(
+    'now' => time(),
+    'domain' => $host,
+    'path' => $url_data['url_info']['path'],
+    'scheme' => $url_data['url_info']['scheme'],
+  );
+
+  foreach ($cookies as $domain => $cookies_list) {
+    foreach ($cookies_list as $cookie) {
+      if (cookie_matches($cookie, $cookie_query)) {
+        $request_cookies[$cookie['name']] = $cookie;
+      }
+    }
+  }
+
   // Try to fetch with HEAD first. In this way if the file is not a web page we avoid
   // the download of unnecessary data.
   $fetch = TRUE;
-  $response_head = http_request($url, array_merge($params['http'], array('method' => 'HEAD', 'follow_redirects' => FALSE)));
+  $response_head = http_request($url, array_merge($params['http'], array(
+    'method' => 'HEAD',
+    'follow_redirects' => FALSE,
+    'cookies' => $request_cookies,
+  )));
 
   if ($response_head['code'] == 200) {
     $fetch = (strpos($response_head['content_type'], 'text/html') === 0);
@@ -373,7 +518,25 @@ while (!empty($queue)) {
     print "\n";
   }
   else {
-    $response = http_request($url, $params['http']);
+    $response = http_request($url, array_merge($params['http'], array(
+      'cookies' => $request_cookies,
+    )));
+
+    // If the response contains cookies, accept only those specified by arguments.
+    if (!empty($response['cookies'])) {
+      foreach ($response['cookies'] as $response_cookie) {
+        if ($params['cookies'] !== FALSE) {
+          if ($params['cookies'] == '*' || in_array($response_cookie['name'], $params['cookies'])) {
+            $cookie_domain = $response_cookie['domain'];
+            if (!isset($cookies[$cookie_domain])) {
+              $cookies[$cookie_domain] = array();
+            }
+
+            $cookies[$cookie_domain][$response_cookie['name']] = $response_cookie;
+          }
+        }
+      }
+    }
 
     $collect = $url_data['collect'];
     if ($response['redirects_count'] == 0) {
