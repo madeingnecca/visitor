@@ -127,7 +127,7 @@ function curl_http_request($url, $options = array()) {
 }
 
 function http_request_parse_headers($headers_string) {
-  $default_headers = array('location' => '');
+  $default_headers = array('location' => array());
   $headers = $default_headers;
   $lines = preg_split('/\r\n/', trim($headers_string));
   $first = array_shift($lines);
@@ -144,7 +144,7 @@ function http_request_parse_headers($headers_string) {
   }
 
   if (!isset($headers['status'])) {
-    $headers['status'] = $first;
+    $headers['status'] = array($first);
   }
 
   return $headers;
@@ -334,7 +334,18 @@ function assemble_url($parsed) {
   return $assembled;
 }
 
+
 function format_url($format, $data) {
+  $headers = isset($data['headers']) ? $data['headers'] : array();
+  $data['headers'] = array();
+  foreach ($headers as $key => $values) {
+    $data['headers'][$key] = join(', ', $values);
+  }
+
+  return format_string($format, $data);
+}
+
+function format_string($format, $data) {
   $result = $format;
   $replacements = array();
   if (preg_match_all('/%([^\s]+)/', $format, $matches)) {
