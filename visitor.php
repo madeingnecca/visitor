@@ -8,7 +8,8 @@ function show_usage() {
   print "    Available variables: %url, %code, %content_type, %headers:XYZ\n";
   print "  -u: Authentication credentials, <user>:<pass>\n";
   print "  -p: Preset name. Choose between: " . (join(', ', array_keys(preset_list()))) . "\n";
-  print "  --cookies: Read all or specific cookies\n";
+  print "  --cookies: Read all or specific cookies.\n";
+  print "    Accept values: * for accepting all cookies\n";
 }
 
 function requirements() {
@@ -63,6 +64,13 @@ function http_request($url, $options = array()) {
 
 function curl_http_request($url, $options = array()) {
   $url_info = parse_url($url);
+
+  // If path is not already encoded, encode it now.
+  if (isset($url_info['path']) && $url == rawurldecode($url)) {
+    $url_info['path'] = str_replace('%2F', '/', rawurlencode($url_info['path']));
+    $url = assemble_url($url_info);
+  }
+
   $method = strtoupper($options['method']);
 
   $ch = curl_init();
