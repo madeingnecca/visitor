@@ -5,11 +5,11 @@ function show_usage() {
   print "Usage: \n";
   print $argv[0] . " [-f -u] <url>\n";
   print "  -f: String to output whenever a new url is collected. \n";
-  print "    Available variables: %url, %code, %content_type, %headers:XYZ\n";
+  print "    Available variables: %url, %code, %content_type, %parent, %headers:<header_name_lowercase>\n";
   print "  -u: Authentication credentials, <user>:<pass>\n";
-  print "  -p: Preset name. Choose between: " . (join(', ', array_keys(preset_list()))) . "\n";
-  print "  --cookies: Read all or specific cookies.\n";
-  print "    Accept values: * for accepting all cookies\n";
+  print "  -p: Presets to load. Choose between: " . (join(', ', array_keys(preset_list()))) . "\n";
+  print "    Multiple presets can be specified using a plus (+) separator. Presets will be merged together.\n";
+  print "  --accept-cookies: Names of the cookies to accept. Use '*' to accept all cookies.\n";
 }
 
 function requirements() {
@@ -44,10 +44,13 @@ function http_request($url, $options = array()) {
   $redirects_count = 0;
   $redirects = array();
   $location = $url;
+  $location_info = parse_url($url);
   while (($response = curl_http_request($location, $options)) && $response['is_redirect'] && ($redirects_count < $options['max_redirects'])) {
     $redirects[] = $response;
     $redirects_count++;
-    $location = $response['headers']['location'][0];
+    $location_header = $response['headers']['location'][0];
+    $location_info = parse_relative_url($location_header, $location_info);
+    $location = assemble_url($location_info);
   }
 
   $result = $response;
@@ -400,7 +403,33 @@ function preset_list() {
         '*' => array('href', 'src'),
       ),
     ),
-    'format' => '%url %code',
+  );
+
+  $presets['links'] = array(
+    'http' => array(),
+    'collect' => array(
+      'tags' => array(
+        'a' => array('href'),
+      ),
+    ),
+  );
+
+  $presets['media'] = array(
+    'http' => array(),
+    'collect' => array(
+      'tags' => array(
+        'a' => array('href'),
+        'img' => array('src'),
+        'video' => array('src'),
+        'audio' => array('src'),
+        'source' => array('src'),
+        'object' => array('src'),
+      ),
+    ),
+  );
+
+  $presets['liferay'] = array(
+    'exclude' => 'p_p_auth',
   );
 
   return $presets;
@@ -410,16 +439,17 @@ function preset_list() {
 requirements();
 
 $pcount = $argc - 1;
-$console = getopt('u:f:p:', array(
-  'cookies::',
+$console = getopt('u:f:p:e:', array(
+  'accept-cookies::',
 ));
 
 $params = array(
-  'cookies' => FALSE,
+  'accept-cookies' => FALSE,
+  'format' => '%url %code',
 );
 
-$presets = preset_list();
-$preset_name = 'health';
+$preset_list = preset_list();
+$presets = array(key($preset_list));
 
 foreach ($console as $opt => $value) {
   $pcount--;
@@ -430,45 +460,58 @@ foreach ($console as $opt => $value) {
       $pcount--;
       break;
 
+    case 'e':
+      $params['exclude'] = $value;
+      $pcount--;
+      break;
+
     case 'u':
       $params['auth'] = trim($value);
       $pcount--;
       break;
 
     case 'p':
-      $preset_name = $value;
+      $presets = explode('+', $value);
+
+      // Invoked with invalid preset.
+      if (array_diff($presets, array_keys($preset_list))) {
+        show_usage();
+        exit(1);
+      }
+
       $pcount--;
       break;
 
-    case 'cookies':
+    case 'accept-cookies':
       if ($value) {
-        $params['cookies'] = $value;
+        $params['accept-cookies'] = $value;
       }
       else {
-        $params['cookies'] = '*';
+        $params['accept-cookies'] = '*';
       }
 
       break;
   }
 }
 
+// Parameter count does not match, user must have invoked this command wrong.
 if ($pcount != 1) {
   show_usage();
-  exit;
+  exit(1);
 }
 
-if (!isset($presets[$preset_name])) {
-  print "Preset '$preset_name' was not found. Choose between: " . join(', ', array_keys($presets));
-  print "\n";
-  exit;
+$presets_params = array();
+foreach ($presets as $preset_name) {
+  $presets_params = array_merge($presets_params, $preset_list[$preset_name]);
 }
 
-$params = array_merge($presets[$preset_name], $params);
+$params = array_merge($presets_params, $params);
 $params['collect'] += array('allow_external' => FALSE);
 if (isset($params['auth'])) {
   $params['http']['auth'] = $params['auth'];
 }
 
+// Our cookie jar.
 $cookies = array();
 
 // Start url is always the last parameter.
@@ -486,17 +529,23 @@ set_time_limit(0);
 
 while (!empty($queue)) {
   $url_data = array_pop($queue);
-  $url_data += array('parents' => array(), 'collect' => TRUE, 'referrer' => '');
+  $url_data += array('parents' => array(), 'collect' => TRUE, 'parent' => '');
   $url = $url_data['url'];
   $host = $url_data['url_info']['host'];
 
+  // Skip already visited urls.
   if (isset($visited[$url])) {
+    continue;
+  }
+
+  // Skip urls we want to exclude via regular expressions.
+  if ($params['exclude'] !== FALSE && preg_match('@' . $params['exclude'] . '@', $url)) {
     continue;
   }
 
   $visit = array();
   $visit['parents'] = join(' --> ', $url_data['parents']);
-  $visit['referrer'] = end($url_data['parents']);
+  $visit['parent'] = end($url_data['parents']);
 
   // Find cookies we can send with this request.
   $request_cookies = array();
@@ -507,6 +556,7 @@ while (!empty($queue)) {
     'scheme' => $url_data['url_info']['scheme'],
   );
 
+  // Send cookies available for this domain/path/conditions.
   foreach ($cookies as $domain => $cookies_list) {
     foreach ($cookies_list as $cookie) {
       if (cookie_matches($cookie, $cookie_query)) {
@@ -542,8 +592,8 @@ while (!empty($queue)) {
     // If the response contains cookies, accept only those specified by arguments.
     if (!empty($response['cookies'])) {
       foreach ($response['cookies'] as $response_cookie) {
-        if ($params['cookies'] !== FALSE) {
-          if ($params['cookies'] == '*' || in_array($response_cookie['name'], $params['cookies'])) {
+        if ($params['accept-cookies'] !== FALSE) {
+          if ($params['accept-cookies'] == '*' || in_array($response_cookie['name'], $params['accept-cookies'])) {
             $cookie_domain = $response_cookie['domain'];
             if (!isset($cookies[$cookie_domain])) {
               $cookies[$cookie_domain] = array();
@@ -570,6 +620,7 @@ while (!empty($queue)) {
       }
 
       $visit += $response;
+
       $last_redirect_info = parse_relative_url($response['url'], $start_info);
       $last_redirect_url = assemble_url($last_redirect_info);
 
