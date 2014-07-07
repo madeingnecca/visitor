@@ -223,7 +223,9 @@ function collect_urls($page_html, $page_url, $options = array()) {
 
   $options += array(
     'allow_external' => TRUE,
-    'tags' => array('a' => array('href')),
+    'tags' => array(),
+    'xpath' => array(),
+    'css' => array(),
     'protocols' => array('http'),
   );
 
@@ -249,11 +251,23 @@ function collect_urls($page_html, $page_url, $options = array()) {
 
   // Traverse the document via xpath.
   foreach ($options['tags'] as $tag => $attrs) {
-    $nodes = $xpath->query('//' . $tag);
+    $xpath_expr = ('//' . $tag);
+    $options['xpath'][$xpath_expr] = $attrs;
+  }
 
-    foreach ($nodes as $node) {
-      foreach ($attrs as $attr) {
-        $found[] = $node->getAttribute($attr);
+  foreach ($options['css'] as $css => $attrs) {
+    $xpath_expr = css_to_xpath($css);
+    $options['xpath'][$xpath_expr] = $attrs;
+  }
+
+  foreach ($options['xpath'] as $xpath_expr => $attrs) {
+    $nodes = $xpath->query($xpath_expr);
+
+    if ($nodes) {
+      foreach ($nodes as $node) {
+        foreach ($attrs as $attr) {
+          $found[] = $node->getAttribute($attr);
+        }
       }
     }
   }
@@ -435,22 +449,39 @@ function preset_list() {
   return $presets;
 }
 
+function css_to_xpath($css) {
+  static $cache;
+  if (!isset($cache[$css])) {
+    $url = "http://css2xpath.appspot.com/?css=$css";
+    $response = http_request($url);
+    if ($response['code'] == 200) {
+      $cache[$css] = $response['data'];
+    }
+  }
+
+  return $cache[$css];
+}
+
 // Check for requirements first.
 requirements();
 
 $pcount = $argc - 1;
 $console = getopt('u:f:p:e:', array(
   'accept-cookies::',
+  'css:',
+  'css-attrs:',
 ));
 
 $params = array(
   'accept-cookies' => FALSE,
   'format' => '%url %code',
+  'exclude' => FALSE,
 );
 
 $preset_list = preset_list();
 $presets = array(key($preset_list));
 
+$console_error = FALSE;
 foreach ($console as $opt => $value) {
   $pcount--;
 
@@ -475,8 +506,8 @@ foreach ($console as $opt => $value) {
 
       // Invoked with invalid preset.
       if (array_diff($presets, array_keys($preset_list))) {
-        show_usage();
-        exit(1);
+        $console_error = TRUE;
+        break;
       }
 
       $pcount--;
@@ -491,11 +522,40 @@ foreach ($console as $opt => $value) {
       }
 
       break;
+
+    case 'css':
+      $css_keys = (array) $value;
+      $pcount -= count($css_keys) - 1;
+      break;
+
+    case 'css-attrs':
+      if (!isset($css_keys)) {
+        $console_error = TRUE;
+        break;
+      }
+
+      $css_attrs = (array) $value;
+      $pcount -= count($css_attrs) - 1;
+
+      if (count($css_attrs) != count($css_keys)) {
+        $console_error = TRUE;
+        break;
+      }
+
+      foreach ($css_keys as $i => $css_key) {
+        $params['collect']['css'][$css_key] = array_map('trim', explode(',', $css_attrs[$i]));
+      }
+
+      unset($css_keys);
+      break;
   }
 }
 
-// Parameter count does not match, user must have invoked this command wrong.
-if ($pcount != 1) {
+// Check for wrong parameter count.
+$console_error = $console_error || (isset($css_keys) || isset($xpath_keys) || $pcount != 1);
+
+// Warn the user that this command was invoked in a wrong way.
+if ($console_error) {
   show_usage();
   exit(1);
 }
