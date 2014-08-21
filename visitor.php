@@ -226,7 +226,7 @@ function collect_urls($page_html, $page_url, $options = array()) {
     'tags' => array(),
     'xpath' => array(),
     'css' => array(),
-    'protocols' => array('http'),
+    'protocols' => array('http', 'https'),
   );
 
   $url_info = parse_url($page_url);
