@@ -462,6 +462,11 @@ function css_to_xpath($css) {
   return $cache[$css];
 }
 
+// Script begins.
+
+// Avoid annoying php warnings saying default tz was not set.
+date_default_timezone_set('UTC');
+
 // Check for requirements first.
 requirements();
 
@@ -584,7 +589,7 @@ $visited = array();
 $queue = array();
 $queue[] = array('url' => $start, 'url_info' => $start_info);
 
-// No time limit.
+// Ensure queue can be dispatched successfully without raising timelimit errors.
 set_time_limit(0);
 
 while (!empty($queue)) {
