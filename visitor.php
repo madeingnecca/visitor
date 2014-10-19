@@ -316,6 +316,10 @@ function parse_relative_url($url, $from_info) {
     // Handle root-relative.
     $url = $from_root . $url;
   }
+  else if ($url[0] == '?') {
+    // Handle urls made of get parameters only.
+    $url = $from_base . $url;
+  }
 
   $url_info = parse_url($url);
   if ($url_info === FALSE) {
