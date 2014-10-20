@@ -1,18 +1,18 @@
 <?php
 
-function show_usage() {
+function visitor_show_usage() {
   global $argv;
   print "Usage: \n";
   print $argv[0] . " [-f -u] <url>\n";
   print "  -f: String to output whenever a new url is collected. \n";
   print "    Available variables: %url, %code, %content_type, %parent, %headers:<header_name_lowercase>\n";
   print "  -u: Authentication credentials, <user>:<pass>\n";
-  print "  -p: Presets to load. Choose between: " . (join(', ', array_keys(preset_list()))) . "\n";
+  print "  -p: Presets to load. Choose between: " . (join(', ', array_keys(visitor_preset_list()))) . "\n";
   print "    Multiple presets can be specified using a plus (+) separator. Presets will be merged together.\n";
   print "  --accept-cookies: Names of the cookies to accept. Use '*' to accept all cookies.\n";
 }
 
-function requirements() {
+function visitor_requirements() {
   if (php_sapi_name() != 'cli') {
     die('PHP must work in cli mode.');
   }
@@ -27,7 +27,7 @@ function requirements() {
   }
 }
 
-function http_request($url, $options = array()) {
+function visitor_http_request($url, $options = array()) {
   $options += array(
     'auth' => FALSE,
     'user_agent' => 'Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.8.1.13) Gecko/20080311 Firefox/2.0.0.13',
@@ -45,12 +45,12 @@ function http_request($url, $options = array()) {
   $redirects = array();
   $location = $url;
   $location_info = parse_url($url);
-  while (($response = curl_http_request($location, $options)) && $response['is_redirect'] && ($redirects_count < $options['max_redirects'])) {
+  while (($response = visitor_curl_http_request($location, $options)) && $response['is_redirect'] && ($redirects_count < $options['max_redirects'])) {
     $redirects[] = $response;
     $redirects_count++;
     $location_header = $response['headers']['location'][0];
-    $location_info = parse_relative_url($location_header, $location_info);
-    $location = assemble_url($location_info);
+    $location_info = visitor_parse_relative_url($location_header, $location_info);
+    $location = visitor_assemble_url($location_info);
   }
 
   $result = $response;
@@ -65,13 +65,13 @@ function http_request($url, $options = array()) {
   return $result;
 }
 
-function curl_http_request($url, $options = array()) {
+function visitor_curl_http_request($url, $options = array()) {
   $url_info = parse_url($url);
 
   // If path is not already encoded, encode it now.
   if (isset($url_info['path']) && $url == rawurldecode($url)) {
     $url_info['path'] = str_replace('%2F', '/', rawurlencode($url_info['path']));
-    $url = assemble_url($url_info);
+    $url = visitor_assemble_url($url_info);
   }
 
   $method = strtoupper($options['method']);
@@ -112,13 +112,13 @@ function curl_http_request($url, $options = array()) {
 
   $headers_string = substr($data, 0, $headers_size);
   $data = substr($data, $headers_size);
-  $headers = http_request_parse_headers($headers_string);
+  $headers = visitor_http_request_parse_headers($headers_string);
   $is_redirect = (in_array($code, array(301, 302)));
 
   $cookies = array();
   if (isset($headers['set-cookie'])) {
     foreach ($headers['set-cookie'] as $cookie_data) {
-      $cookie = http_request_parse_cookie($cookie_data);
+      $cookie = visitor_http_request_parse_cookie($cookie_data);
       $cookie += array('domain' => $url_info['host']);
       $cookies[$cookie['name']] = $cookie;
     }
@@ -137,7 +137,7 @@ function curl_http_request($url, $options = array()) {
   return $result;
 }
 
-function http_request_parse_headers($headers_string) {
+function visitor_http_request_parse_headers($headers_string) {
   $default_headers = array('location' => array());
   $headers = $default_headers;
   $lines = preg_split('/\r\n/', trim($headers_string));
@@ -161,7 +161,7 @@ function http_request_parse_headers($headers_string) {
   return $headers;
 }
 
-function http_request_parse_cookie($cookie_data) {
+function visitor_http_request_parse_cookie($cookie_data) {
   $cookie = array(
     'path' => '/',
     'secure' => FALSE,
@@ -191,7 +191,7 @@ function http_request_parse_cookie($cookie_data) {
   return $cookie;
 }
 
-function cookie_matches($cookie, $query) {
+function visitor_cookie_matches($cookie, $query) {
   if (isset($cookie['expires_time']) && $cookie['expires_time'] < $query['now']) {
     return FALSE;
   }
@@ -216,7 +216,7 @@ function cookie_matches($cookie, $query) {
   return FALSE;
 }
 
-function collect_urls($page_html, $page_url, $options = array()) {
+function visitor_collect_urls($page_html, $page_url, $options = array()) {
   if (strlen($page_html) == 0) {
     return array();
   }
@@ -256,7 +256,7 @@ function collect_urls($page_html, $page_url, $options = array()) {
   }
 
   foreach ($options['css'] as $css => $attrs) {
-    $xpath_expr = css_to_xpath($css);
+    $xpath_expr = visitor_css_to_xpath($css);
     $options['xpath'][$xpath_expr] = $attrs;
   }
 
@@ -279,7 +279,7 @@ function collect_urls($page_html, $page_url, $options = array()) {
       continue;
     }
 
-    $value_info = parse_relative_url($value, $url_info);
+    $value_info = visitor_parse_relative_url($value, $url_info);
 
     if ($value_info === FALSE) {
       continue;
@@ -289,7 +289,7 @@ function collect_urls($page_html, $page_url, $options = array()) {
       continue;
     }
 
-    $value_assembled = assemble_url($value_info);
+    $value_assembled = visitor_assemble_url($value_info);
 
     $collect = $options['allow_external'] || ($value_info['host'] == $url_info['host']);
 
@@ -304,7 +304,7 @@ function collect_urls($page_html, $page_url, $options = array()) {
   return $result;
 }
 
-function parse_relative_url($url, $from_info) {
+function visitor_parse_relative_url($url, $from_info) {
   $from_base = dirname($from_info['path']);
   $from_root = $from_info['scheme'] . '://' . $from_info['host'];
 
@@ -332,13 +332,13 @@ function parse_relative_url($url, $from_info) {
   if (!isset($url_info['scheme']) && !isset($url_info['host'])) {
     $url_info['scheme'] = $from_info['scheme'];
     $url_info['host'] = $from_info['host'];
-    $url_info['path'] = resolve_relative_url($from_base, $url_info['path']);
+    $url_info['path'] = visitor_resolve_relative_url($from_base, $url_info['path']);
   }
 
   return $url_info;
 }
 
-function resolve_relative_url($base_path, $rel_path) {
+function visitor_resolve_relative_url($base_path, $rel_path) {
   $base_path_parts = explode('/', $base_path);
   $rel_path_parts = explode('/', $rel_path);
   foreach ($rel_path_parts as $rel_part) {
@@ -354,7 +354,7 @@ function resolve_relative_url($base_path, $rel_path) {
   return join('/', array_merge($base_path_parts, $rel_path_parts));
 }
 
-function assemble_url($parsed) {
+function visitor_assemble_url($parsed) {
   $assembled = $parsed['scheme'] . '://' . rtrim($parsed['host'], '/\\') . '/' . ltrim($parsed['path'], '/\\');
   if (isset($parsed['query'])) {
     $assembled .= '?' . str_replace('&amp;', '&', $parsed['query']);
@@ -364,17 +364,17 @@ function assemble_url($parsed) {
 }
 
 
-function format_url($format, $data) {
+function visitor_format_url($format, $data) {
   $headers = isset($data['headers']) ? $data['headers'] : array();
   $data['headers'] = array();
   foreach ($headers as $key => $values) {
     $data['headers'][$key] = join(', ', $values);
   }
 
-  return format_string($format, $data);
+  return visitor_format_string($format, $data);
 }
 
-function format_string($format, $data) {
+function visitor_format_string($format, $data) {
   $result = $format;
   $replacements = array();
   if (preg_match_all('/%([^\s]+)/', $format, $matches)) {
@@ -412,7 +412,7 @@ function format_string($format, $data) {
   return $result;
 }
 
-function preset_list() {
+function visitor_preset_list() {
   $presets = array();
   $presets['health'] = array(
     'http' => array(),
@@ -453,11 +453,11 @@ function preset_list() {
   return $presets;
 }
 
-function css_to_xpath($css) {
+function visitor_css_to_xpath($css) {
   static $cache;
   if (!isset($cache[$css])) {
     $url = "http://css2xpath.appspot.com/?css=$css";
-    $response = http_request($url);
+    $response = visitor_http_request($url);
     if ($response['code'] == 200) {
       $cache[$css] = $response['data'];
     }
@@ -466,261 +466,220 @@ function css_to_xpath($css) {
   return $cache[$css];
 }
 
-// Script begins.
-
-// Avoid annoying php warnings saying default tz was not set.
-date_default_timezone_set('UTC');
-
-// Check for requirements first.
-requirements();
-
-$pcount = $argc - 1;
-$console = getopt('u:f:p:e:', array(
-  'accept-cookies::',
-  'css:',
-  'css-attrs:',
-));
-
-$params = array(
-  'accept-cookies' => FALSE,
-  'format' => '%url %code',
-  'exclude' => FALSE,
-);
-
-$preset_list = preset_list();
-$presets = array(key($preset_list));
-
-$console_error = FALSE;
-foreach ($console as $opt => $value) {
-  $pcount--;
-
-  switch ($opt) {
-    case 'f':
-      $params['format'] = $value;
-      $pcount--;
-      break;
-
-    case 'e':
-      $params['exclude'] = $value;
-      $pcount--;
-      break;
-
-    case 'u':
-      $params['auth'] = trim($value);
-      $pcount--;
-      break;
-
-    case 'p':
-      $presets = explode('+', $value);
-
-      // Invoked with invalid preset.
-      if (array_diff($presets, array_keys($preset_list))) {
-        $console_error = TRUE;
-        break;
-      }
-
-      $pcount--;
-      break;
-
-    case 'accept-cookies':
-      if ($value) {
-        $params['accept-cookies'] = $value;
-      }
-      else {
-        $params['accept-cookies'] = '*';
-      }
-
-      break;
-
-    case 'css':
-      $css_keys = (array) $value;
-      $pcount -= count($css_keys) - 1;
-      break;
-
-    case 'css-attrs':
-      if (!isset($css_keys)) {
-        $console_error = TRUE;
-        break;
-      }
-
-      $css_attrs = (array) $value;
-      $pcount -= count($css_attrs) - 1;
-
-      if (count($css_attrs) != count($css_keys)) {
-        $console_error = TRUE;
-        break;
-      }
-
-      foreach ($css_keys as $i => $css_key) {
-        $params['collect']['css'][$css_key] = array_map('trim', explode(',', $css_attrs[$i]));
-      }
-
-      unset($css_keys);
-      break;
-  }
-}
-
-// Check for wrong parameter count.
-$console_error = $console_error || (isset($css_keys) || isset($xpath_keys) || $pcount != 1);
-
-// Warn the user that this command was invoked in a wrong way.
-if ($console_error) {
-  show_usage();
-  exit(1);
-}
-
-$presets_params = array();
-foreach ($presets as $preset_name) {
-  $presets_params = array_merge($presets_params, $preset_list[$preset_name]);
-}
-
-$params = array_merge($presets_params, $params);
-$params['collect'] += array('allow_external' => FALSE);
-if (isset($params['auth'])) {
-  $params['http']['auth'] = $params['auth'];
-}
-
-// Our cookie jar.
-$cookies = array();
-
-// Start url is always the last parameter.
-$start = $argv[$argc - 1];
-
-$start_info = parse_url($start);
-$start_info += array('scheme' => 'http', 'path' => '');
-
-$visited = array();
-$queue = array();
-$queue[] = array('url' => $start, 'url_info' => $start_info);
-
-// Ensure queue can be dispatched successfully without raising timelimit errors.
-set_time_limit(0);
-
-while (!empty($queue)) {
-  $url_data = array_pop($queue);
-  $url_data += array('parents' => array(), 'collect' => TRUE, 'parent' => '');
-  $url = $url_data['url'];
-  $host = $url_data['url_info']['host'];
-
-  // Skip already visited urls.
-  if (isset($visited[$url])) {
-    continue;
-  }
-
-  // Skip urls we want to exclude via regular expressions.
-  if ($params['exclude'] !== FALSE && preg_match('@' . $params['exclude'] . '@', $url)) {
-    continue;
-  }
-
-  $visit = array();
-  $visit['parents'] = join(' --> ', $url_data['parents']);
-  $visit['parent'] = end($url_data['parents']);
-
-  // Find cookies we can send with this request.
-  $request_cookies = array();
-  $cookie_query = array(
-    'now' => time(),
-    'domain' => $host,
-    'path' => $url_data['url_info']['path'],
-    'scheme' => $url_data['url_info']['scheme'],
+function visitor_parse_arguments($args) {
+  $default_params = array(
+    'http' => array(),
+    'collect' => array(
+      'allow_external' => FALSE,
+    ),
+    'accept-cookies' => FALSE,
+    'format' => '%url %code',
+    'exclude' => FALSE,
+    'print' => TRUE,
   );
 
-  // Send cookies available for this domain/path/conditions.
-  foreach ($cookies as $domain => $cookies_list) {
-    foreach ($cookies_list as $cookie) {
-      if (cookie_matches($cookie, $cookie_query)) {
-        $request_cookies[$cookie['name']] = $cookie;
-      }
+  $preset_list = visitor_preset_list();
+  $presets_chosen = array(key($preset_list));
+
+  $params = $default_params;
+  foreach ($presets_chosen as $preset_params) {
+    $params = array_merge_recursive($params, $preset_list[$preset_params]);
+  }
+
+  $result = array();
+  $result['error'] = FALSE;
+  $result['params'] = $params;
+  $result['start_url'] = 'http://www.arper.com';
+  return $result;
+}
+
+function visitor_init($start_url, $params) {
+  $visitor = array();
+  $visitor['cookies'] = array();
+  $visitor['queue'] = array();
+  $visitor['visited'] = array();
+  $visitor['params'] = array();
+  $visitor['print'] = array();
+  $visitor['start_url'] = $start_url;
+  $visitor['params'] = $params;
+  return $visitor;
+}
+
+function visitor_process(&$visitor) {
+  $queue = array();
+  $cookies = array();
+  $params = $visitor['params'];
+
+  // Start url is always the last parameter.
+  $start_url = $visitor['start_url'];
+
+  $start_info = parse_url($start_url);
+  $start_info += array('scheme' => 'http', 'path' => '');
+
+  $visited = array();
+  $queue[] = array('url' => $start_url, 'url_info' => $start_info);
+
+  $print_visit = function($data) use ($visitor, $params) {
+    if ($visitor['params']['print']) {
+      print visitor_format_url($params['format'], $data);
+      print "\n";
     }
-  }
+    else {
+      $visitor['print'][] = $data;
+    }
+  };
 
-  // Try to fetch with HEAD first. In this way if the file is not a web page we avoid
-  // the download of unnecessary data.
-  $fetch = TRUE;
-  $response_head = http_request($url, array_merge($params['http'], array(
-    'method' => 'HEAD',
-    'follow_redirects' => FALSE,
-    'cookies' => $request_cookies,
-  )));
+  // Ensure queue can be dispatched successfully without raising timelimit errors.
+  set_time_limit(0);
 
-  if ($response_head['code'] == 200) {
-    $fetch = (strpos($response_head['content_type'], 'text/html') === 0);
-  }
+  while (!empty($queue)) {
+    $url_data = array_pop($queue);
+    $url_data += array('parents' => array(), 'collect' => TRUE, 'parent' => '');
+    $url = $url_data['url'];
+    $host = $url_data['url_info']['host'];
 
-  if (!$fetch) {
-    $visit += $response_head;
+    // Skip already visited urls.
+    if (isset($visited[$url])) {
+      continue;
+    }
 
-    print format_url($params['format'], $visit);
-    print "\n";
-  }
-  else {
-    $response = http_request($url, array_merge($params['http'], array(
-      'cookies' => $request_cookies,
-    )));
+    // Skip urls we want to exclude via regular expressions.
+    if ($params['exclude'] !== FALSE && preg_match('@' . $params['exclude'] . '@', $url)) {
+      continue;
+    }
 
-    // If the response contains cookies, accept only those specified by arguments.
-    if (!empty($response['cookies'])) {
-      foreach ($response['cookies'] as $response_cookie) {
-        if ($params['accept-cookies'] !== FALSE) {
-          if ($params['accept-cookies'] == '*' || in_array($response_cookie['name'], $params['accept-cookies'])) {
-            $cookie_domain = $response_cookie['domain'];
-            if (!isset($cookies[$cookie_domain])) {
-              $cookies[$cookie_domain] = array();
-            }
+    $visit = array();
+    $visit['parents'] = join(' --> ', $url_data['parents']);
+    $visit['parent'] = end($url_data['parents']);
 
-            $cookies[$cookie_domain][$response_cookie['name']] = $response_cookie;
-          }
+    // Find cookies we can send with this request.
+    $request_cookies = array();
+    $cookie_query = array(
+      'now' => time(),
+      'domain' => $host,
+      'path' => $url_data['url_info']['path'],
+      'scheme' => $url_data['url_info']['scheme'],
+    );
+
+    // Send cookies available for this domain/path/conditions.
+    foreach ($cookies as $domain => $cookies_list) {
+      foreach ($cookies_list as $cookie) {
+        if (visitor_cookie_matches($cookie, $cookie_query)) {
+          $request_cookies[$cookie['name']] = $cookie;
         }
       }
     }
 
-    $collect = $url_data['collect'];
-    if ($response['redirects_count'] == 0) {
-      $visit += $response;
-      $visited[$url] = $visit;
+    // Try to fetch with HEAD first. In this way if the file is not a web page we avoid
+    // the download of unnecessary data.
+    $fetch = TRUE;
+    $response_head = visitor_http_request($url, array_merge($params['http'], array(
+      'method' => 'HEAD',
+      'follow_redirects' => FALSE,
+      'cookies' => $request_cookies,
+    )));
+
+    if ($response_head['code'] == 200) {
+      $fetch = (strpos($response_head['content_type'], 'text/html') === 0);
+    }
+
+    if (!$fetch) {
+      $visit += $response_head;
+
+      $print_visit($visit);
     }
     else {
-      foreach ($response['redirects'] as $redirect_response) {
-        $redirect_data = $visit + $redirect_response;
-        $redirect_data['url'] = $redirect_response['url'];
+      $response = visitor_http_request($url, array_merge($params['http'], array(
+        'cookies' => $request_cookies,
+      )));
 
-        print format_url($params['format'], $redirect_data);
-        print "\n";
+      // If the response contains cookies, accept only those specified by arguments.
+      if (!empty($response['cookies'])) {
+        foreach ($response['cookies'] as $response_cookie) {
+          if ($params['accept-cookies'] !== FALSE) {
+            if ($params['accept-cookies'] == '*' || in_array($response_cookie['name'], $params['accept-cookies'])) {
+              $cookie_domain = $response_cookie['domain'];
+              if (!isset($cookies[$cookie_domain])) {
+                $cookies[$cookie_domain] = array();
+              }
+
+              $cookies[$cookie_domain][$response_cookie['name']] = $response_cookie;
+            }
+          }
+        }
       }
 
-      $visit += $response;
-
-      $last_redirect_info = parse_relative_url($response['url'], $start_info);
-      $last_redirect_url = assemble_url($last_redirect_info);
-
-      if (isset($visited[$last_redirect_url])) {
-        $collect = FALSE;
+      $collect = $url_data['collect'];
+      if ($response['redirects_count'] == 0) {
+        $visit += $response;
+        $visited[$url] = $visit;
       }
       else {
-        $visited[$last_redirect_url] = $visit;
+        foreach ($response['redirects'] as $redirect_response) {
+          $redirect_data = $visit + $redirect_response;
+          $redirect_data['url'] = $redirect_response['url'];
 
-        $collect_redirect = $params['collect']['allow_external'] || ($last_redirect_info['host'] == $start_info['host']);
-        $collect = $collect && $collect_redirect;
+          $print_visit($redirect_data);
+        }
+
+        $visit += $response;
+
+        $last_redirect_info = visitor_parse_relative_url($response['url'], $start_info);
+        $last_redirect_url = visitor_assemble_url($last_redirect_info);
+
+        if (isset($visited[$last_redirect_url])) {
+          $collect = FALSE;
+        }
+        else {
+          $visited[$last_redirect_url] = $visit;
+
+          $collect_redirect = $params['collect']['allow_external'] || ($last_redirect_info['host'] == $start_info['host']);
+          $collect = $collect && $collect_redirect;
+        }
+      }
+
+      $print_visit($visit);
+
+      $is_web_page = (strpos($response['content_type'], 'text/html') === 0);
+
+      // Collect urls only if it was a successful response, a page containing html
+      // and collection was requested.
+      if ($response['code'] == 200 && $is_web_page && $collect) {
+        $urls = visitor_collect_urls($response['data'], $url, $params['collect']);
+
+        $new_parents = array_merge($url_data['parents'], array($url));
+        foreach ($urls as $collected) {
+          $collected += array('parents' => $new_parents);
+          $queue[] = $collected;
+        }
       }
     }
 
-    print format_url($params['format'], $visit);
-    print "\n";
-
-    $is_web_page = (strpos($response['content_type'], 'text/html') === 0);
-
-    // Collect urls only if it was a successful response, a page containing html
-    // and collection was requested.
-    if ($response['code'] == 200 && $is_web_page && $collect) {
-      $urls = collect_urls($response['data'], $url, $params['collect']);
-
-      $new_parents = array_merge($url_data['parents'], array($url));
-      foreach ($urls as $collected) {
-        $collected += array('parents' => $new_parents);
-        $queue[] = $collected;
-      }
-    }
+    $visited[$url] = $visit;
   }
 
-  $visited[$url] = $visit;
+  $visitor['queue'] = $queue;
+  $visitor['visited'] = $visited;
+  $visitor['cookies'] = $cookies;
 }
+
+// Script begins.
+
+// Call the visitor routine only if we are in the *MAIN* script.
+if (count(debug_backtrace()) > 0) {
+  return;
+}
+
+ini_set('display_errors', 1);
+
+// Avoid annoying php warnings saying default tz was not set.
+date_default_timezone_set('UTC');
+
+// Check for visitor_requirements first.
+visitor_requirements();
+
+$visitor_args = visitor_parse_arguments($argv);
+
+$visitor = visitor_init($visitor_args['start_url'], $visitor_args['params']);
+
+visitor_process($visitor);
