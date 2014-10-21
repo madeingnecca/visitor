@@ -1,15 +1,37 @@
 <?php
 
-function visitor_show_usage() {
+function visitor_show_usage($extra_error = NULL) {
   global $argv;
+
+  if (isset($extra_error)) {
+    print "Fatal error: $extra_error\n";
+    print "\n";
+  }
+
   print "Usage: \n";
-  print $argv[0] . " [-f -u] <url>\n";
+  print $argv[0] . " [-f -u -p --accept-cookies] <url>\n";
   print "  -f: String to output whenever a new url is collected. \n";
   print "    Available variables: %url, %code, %content_type, %parent, %headers:<header_name_lowercase>\n";
   print "  -u: Authentication credentials, <user>:<pass>\n";
   print "  -p: Presets to load. Choose between: " . (join(', ', array_keys(visitor_preset_list()))) . "\n";
   print "    Multiple presets can be specified using a plus (+) separator. Presets will be merged together.\n";
   print "  --accept-cookies: Names of the cookies to accept. Use '*' to accept all cookies.\n";
+  print "\n";
+}
+
+function visitor_get_error($error_key, $error_arg = NULL) {
+  $message = $error_key;
+  switch ($error_key) {
+    case 'no_url':
+      $message = 'No url given';
+      break;
+
+    case 'invalid_presets':
+      $message = sprintf('Invalid presets %s', join(',', $error_arg));
+      break;
+  }
+
+  return $message;
 }
 
 function visitor_requirements() {
@@ -466,8 +488,44 @@ function visitor_css_to_xpath($css) {
   return $cache[$css];
 }
 
-function visitor_parse_arguments($args) {
-  $default_params = array(
+function visitor_array_merge_deep() {
+  $args = func_get_args();
+  return visitor_array_merge_deep_array($args);
+}
+
+function visitor_array_merge_deep_array($arrays) {
+  $result = array();
+  foreach ($arrays as $array) {
+    foreach ($array as $key => $value) {
+      // Renumber integer keys as array_merge_recursive() does. Note that PHP
+      // automatically converts array keys that are integer strings (e.g., '1')
+      // to integers.
+      if (is_integer($key)) {
+        $result[] = $value;
+      }
+      // Recurse when both values are arrays.
+      elseif (isset($result[$key]) && is_array($result[$key]) && is_array($value)) {
+        $result[$key] = visitor_array_merge_deep_array(array($result[$key], $value));
+      }
+      // Otherwise, use the latter value, overriding any previous value.
+      else {
+        $result[$key] = $value;
+      }
+    }
+  }
+  return $result;
+}
+
+/**
+ * Read argument from a list of parsed command line options.
+ */
+function visitor_read_arguments($cli_args) {
+  $args = $cli_args;
+
+  // Remove script name.
+  array_shift($args);
+
+  $default_options = array(
     'http' => array(),
     'collect' => array(
       'allow_external' => FALSE,
@@ -481,34 +539,85 @@ function visitor_parse_arguments($args) {
   $preset_list = visitor_preset_list();
   $presets_chosen = array(key($preset_list));
 
-  $params = $default_params;
-  foreach ($presets_chosen as $preset_params) {
-    $params = array_merge_recursive($params, $preset_list[$preset_params]);
+  $input = array();
+  $input['error'] = FALSE;
+  $input['options'] = array();
+  $input['presets'] = array();
+
+  while ((($arg = array_shift($args)) !== NULL) && !$input['error']) {
+    switch ($arg) {
+      case '-f':
+        $input['options']['format'] = trim(array_shift($args));
+        break;
+
+      case '-u':
+        $input['options']['auth'] = trim(array_shift($args));
+        break;
+
+      case '-p':
+        $_presets = explode('+', array_shift($args));
+
+        if ($_unknown_presets = array_diff($_presets, array_keys($preset_list))) {
+          $input['error'] = visitor_get_error('invalid_presets', $_unknown_presets);
+        }
+        else {
+          $input['presets'] = $_presets;
+        }
+
+        break;
+
+      case '--accept-cookies':
+        $input['options']['accept-cookies'] = trim(array_shift($args));
+        break;
+      
+      default:
+        $start_url = trim($arg);
+        break;
+    }
+  }
+
+  if (!$input['error'] && !isset($start_url)) {
+    $input['error']  = visitor_get_error('no_url');
   }
 
   $result = array();
-  $result['error'] = FALSE;
-  $result['params'] = $params;
-  $result['start_url'] = 'http://www.arper.com';
+  $result['error'] = $input['error'];
+
+  if (!$input['error']) {
+    $result['start_url'] = $start_url;
+    
+    if (!empty($input['presets'])) {
+      $presets_chosen = $input['presets'];
+    }
+
+    $options = $default_options;
+    foreach ($presets_chosen as $preset_name) {
+      $options = visitor_array_merge_deep($options, $preset_list[$preset_name]);
+    }
+
+    $options = visitor_array_merge_deep($options, $input['options']);
+
+    $result['options'] = $options;
+  }
+  
   return $result;
 }
 
-function visitor_init($start_url, $params) {
+function visitor_init($start_url, $options) {
   $visitor = array();
   $visitor['cookies'] = array();
   $visitor['queue'] = array();
   $visitor['visited'] = array();
-  $visitor['params'] = array();
   $visitor['print'] = array();
   $visitor['start_url'] = $start_url;
-  $visitor['params'] = $params;
+  $visitor['options'] = $options;
   return $visitor;
 }
 
-function visitor_process(&$visitor) {
+function visitor_run(&$visitor) {
   $queue = array();
   $cookies = array();
-  $params = $visitor['params'];
+  $options = $visitor['options'];
 
   // Start url is always the last parameter.
   $start_url = $visitor['start_url'];
@@ -519,9 +628,9 @@ function visitor_process(&$visitor) {
   $visited = array();
   $queue[] = array('url' => $start_url, 'url_info' => $start_info);
 
-  $print_visit = function($data) use ($visitor, $params) {
-    if ($visitor['params']['print']) {
-      print visitor_format_url($params['format'], $data);
+  $print_visit = function($data) use ($visitor, $options) {
+    if ($visitor['options']['print']) {
+      print visitor_format_url($options['format'], $data);
       print "\n";
     }
     else {
@@ -544,7 +653,7 @@ function visitor_process(&$visitor) {
     }
 
     // Skip urls we want to exclude via regular expressions.
-    if ($params['exclude'] !== FALSE && preg_match('@' . $params['exclude'] . '@', $url)) {
+    if ($options['exclude'] !== FALSE && preg_match('@' . $options['exclude'] . '@', $url)) {
       continue;
     }
 
@@ -573,7 +682,7 @@ function visitor_process(&$visitor) {
     // Try to fetch with HEAD first. In this way if the file is not a web page we avoid
     // the download of unnecessary data.
     $fetch = TRUE;
-    $response_head = visitor_http_request($url, array_merge($params['http'], array(
+    $response_head = visitor_http_request($url, array_merge($options['http'], array(
       'method' => 'HEAD',
       'follow_redirects' => FALSE,
       'cookies' => $request_cookies,
@@ -589,15 +698,15 @@ function visitor_process(&$visitor) {
       $print_visit($visit);
     }
     else {
-      $response = visitor_http_request($url, array_merge($params['http'], array(
+      $response = visitor_http_request($url, array_merge($options['http'], array(
         'cookies' => $request_cookies,
       )));
 
       // If the response contains cookies, accept only those specified by arguments.
       if (!empty($response['cookies'])) {
         foreach ($response['cookies'] as $response_cookie) {
-          if ($params['accept-cookies'] !== FALSE) {
-            if ($params['accept-cookies'] == '*' || in_array($response_cookie['name'], $params['accept-cookies'])) {
+          if ($options['accept-cookies'] !== FALSE) {
+            if ($options['accept-cookies'] == '*' || in_array($response_cookie['name'], $options['accept-cookies'])) {
               $cookie_domain = $response_cookie['domain'];
               if (!isset($cookies[$cookie_domain])) {
                 $cookies[$cookie_domain] = array();
@@ -633,7 +742,7 @@ function visitor_process(&$visitor) {
         else {
           $visited[$last_redirect_url] = $visit;
 
-          $collect_redirect = $params['collect']['allow_external'] || ($last_redirect_info['host'] == $start_info['host']);
+          $collect_redirect = $options['collect']['allow_external'] || ($last_redirect_info['host'] == $start_info['host']);
           $collect = $collect && $collect_redirect;
         }
       }
@@ -645,7 +754,7 @@ function visitor_process(&$visitor) {
       // Collect urls only if it was a successful response, a page containing html
       // and collection was requested.
       if ($response['code'] == 200 && $is_web_page && $collect) {
-        $urls = visitor_collect_urls($response['data'], $url, $params['collect']);
+        $urls = visitor_collect_urls($response['data'], $url, $options['collect']);
 
         $new_parents = array_merge($url_data['parents'], array($url));
         foreach ($urls as $collected) {
@@ -675,11 +784,18 @@ ini_set('display_errors', 1);
 // Avoid annoying php warnings saying default tz was not set.
 date_default_timezone_set('UTC');
 
-// Check for visitor_requirements first.
+// Check for requirements first.
 visitor_requirements();
 
-$visitor_args = visitor_parse_arguments($argv);
+// Read arguments passed to this script.
 
-$visitor = visitor_init($visitor_args['start_url'], $visitor_args['params']);
+$visitor_args = visitor_read_arguments($argv);
 
-visitor_process($visitor);
+if ($visitor_args['error']) {
+  visitor_show_usage($visitor_args['error']);
+  exit(1);
+}
+
+$visitor = visitor_init($visitor_args['start_url'], $visitor_args['options']);
+
+visitor_run($visitor);
