@@ -1,0 +1,8 @@
+<phpunit bootstrap="tests/bootstrap.php">
+  <testsuites>
+    <testsuite name="Visitor Tests">
+      <file>tests/VisitorBasicTest.php</file>
+      <file>tests/VisitorHttpRequestTest.php</file>
+    </testsuite>
+  </testsuites>
+</phpunit>
