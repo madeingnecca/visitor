@@ -354,15 +354,31 @@ function visitor_parse_relative_url($url, $from_info) {
   if (!isset($url_info['scheme']) && !isset($url_info['host'])) {
     $url_info['scheme'] = $from_info['scheme'];
     $url_info['host'] = $from_info['host'];
-    $url_info['path'] = visitor_resolve_relative_url($from_base, $url_info['path']);
+    $url_info['path'] = visitor_resolve_relative_path($from_base, $url_info['path']);
   }
 
   return $url_info;
 }
 
-function visitor_resolve_relative_url($base_path, $rel_path) {
-  $base_path_parts = explode('/', $base_path);
-  $rel_path_parts = explode('/', $rel_path);
+function visitor_resolve_relative_path($base_path, $rel_path) {
+  $prefix = '';
+  if (isset($base_path[0]) && $base_path[0] === '/') {
+    $prefix = '/';
+  }
+
+  $base_path = rtrim($base_path, '/');
+  $rel_path = ltrim($rel_path, '/');
+
+  $base_path_parts = array_filter(explode('/', $base_path));
+  $rel_path_parts = array_filter(explode('/', $rel_path));
+
+  $count_rel = array_count_values($rel_path_parts);
+  $count_rel += array('..' => 0);
+
+  if ($count_rel['..'] > count($base_path_parts)) {
+    return FALSE;
+  }
+
   foreach ($rel_path_parts as $rel_part) {
     if ($rel_part == '.') {
       array_shift($rel_path_parts);
@@ -373,7 +389,7 @@ function visitor_resolve_relative_url($base_path, $rel_path) {
     }
   }
 
-  return join('/', array_merge($base_path_parts, $rel_path_parts));
+  return $prefix . join('/', array_merge($base_path_parts, $rel_path_parts));
 }
 
 function visitor_assemble_url($parsed) {
