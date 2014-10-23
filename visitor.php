@@ -532,16 +532,8 @@ function visitor_array_merge_deep_array($arrays) {
   return $result;
 }
 
-/**
- * Read argument from a list of parsed command line options.
- */
-function visitor_read_arguments($cli_args) {
-  $args = $cli_args;
-
-  // Remove script name.
-  array_shift($args);
-
-  $default_options = array(
+function visitor_default_options() {
+  return array(
     'http' => array(),
     'collect' => array(
       'allow_external' => FALSE,
@@ -551,7 +543,18 @@ function visitor_read_arguments($cli_args) {
     'exclude' => FALSE,
     'print' => TRUE,
   );
+}
 
+/**
+ * Read argument from a list of parsed command line options.
+ */
+function visitor_read_arguments($cli_args) {
+  $args = $cli_args;
+
+  // Remove script name.
+  array_shift($args);
+
+  $default_options = visitor_default_options();
   $preset_list = visitor_preset_list();
   $presets_chosen = array(key($preset_list));
 
@@ -619,15 +622,19 @@ function visitor_read_arguments($cli_args) {
   return $result;
 }
 
-function visitor_init($start_url, $options) {
+function visitor_init($start_url, $options = array()) {
   $visitor = array();
+  visitor_reset($visitor);
+  $visitor['start_url'] = $start_url;
+  $visitor['options'] = $options;
+  return $visitor;
+}
+
+function visitor_reset(&$visitor) {
   $visitor['cookies'] = array();
   $visitor['queue'] = array();
   $visitor['visited'] = array();
   $visitor['print'] = array();
-  $visitor['start_url'] = $start_url;
-  $visitor['options'] = $options;
-  return $visitor;
 }
 
 function visitor_run(&$visitor) {
@@ -814,4 +821,5 @@ if ($visitor_args['error']) {
 
 $visitor = visitor_init($visitor_args['start_url'], $visitor_args['options']);
 
+// Run, run, run, as fast as you can.
 visitor_run($visitor);

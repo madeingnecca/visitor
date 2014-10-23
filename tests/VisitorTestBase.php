@@ -9,7 +9,7 @@ class VisitorTestBase extends PHPUnit_Framework_TestCase {
       'webserver' => array(
         'host' => 'localhost',
         'port' => '9000',
-        'docroot' => __DIR__ 
+        'docroot' => __DIR__,
       ),
     );
   }
@@ -42,5 +42,23 @@ class VisitorTestBase extends PHPUnit_Framework_TestCase {
 
   public function webserverUrl($path) {
     return 'http://' . $this->_config['webserver']['host'] . ':' . $this->_config['webserver']['port'] . '/' . ltrim($path, '/');
+  }
+
+  public function httpbinHttpRequest($path, $params = array()) {
+    $params += array(
+      'json' => FALSE,
+      'http_params' => array(),
+    );
+
+    $result = array();
+
+    $response = visitor_http_request('http://httpbin.org/' . $path, $params['http_params']);
+    $result['http_response'] = $response;
+
+    if ($params['json'] && !empty($result['http_response']['data'])) {
+      $result['json'] = json_decode($result['http_response']['data'], TRUE);
+    }
+
+    return $result;
   }
 }
