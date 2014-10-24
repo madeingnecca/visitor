@@ -67,6 +67,7 @@ function visitor_http_request($url, $options = array()) {
   $redirects = array();
   $location = $url;
   $location_info = parse_url($url);
+  $location_info += array('scheme' => 'http', 'path' => '');
   while (($response = visitor_curl_http_request($location, $options)) && $response['is_redirect'] && ($redirects_count < $options['max_redirects'])) {
     $redirects[] = $response;
     $redirects_count++;
