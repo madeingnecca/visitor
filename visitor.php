@@ -140,7 +140,7 @@ function visitor_curl_http_request($url, $options = array()) {
   $cookies = array();
   if (isset($headers['set-cookie'])) {
     foreach ($headers['set-cookie'] as $cookie_data) {
-      $cookie = visitor_http_request_parse_cookie($cookie_data);
+      $cookie = visitor_parse_cookie($cookie_data);
       $cookie += array('domain' => $url_info['host']);
       $cookies[$cookie['name']] = $cookie;
     }
@@ -183,11 +183,12 @@ function visitor_http_request_parse_headers($headers_string) {
   return $headers;
 }
 
-function visitor_http_request_parse_cookie($cookie_data) {
+function visitor_parse_cookie($cookie_data) {
   $cookie = array(
     'path' => '/',
     'secure' => FALSE,
-    'httpdonly' => FALSE,
+    'httponly' => FALSE,
+    'session' => TRUE,
   );
 
   $exploded = explode('; ', $cookie_data);
@@ -208,6 +209,7 @@ function visitor_http_request_parse_cookie($cookie_data) {
 
   if (isset($cookie['expires'])) {
     $cookie['expires_time'] = strtotime($cookie['expires']);
+    $cookie['session'] = FALSE;
   }
 
   return $cookie;
@@ -588,7 +590,7 @@ function visitor_read_arguments($cli_args) {
       case '--accept-cookies':
         $input['options']['accept-cookies'] = trim(array_shift($args));
         break;
-      
+
       default:
         $start_url = trim($arg);
         break;
@@ -604,7 +606,7 @@ function visitor_read_arguments($cli_args) {
 
   if (!$input['error']) {
     $result['start_url'] = $start_url;
-    
+
     if (!empty($input['presets'])) {
       $presets_chosen = $input['presets'];
     }
@@ -618,7 +620,7 @@ function visitor_read_arguments($cli_args) {
 
     $result['options'] = $options;
   }
-  
+
   return $result;
 }
 

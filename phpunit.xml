@@ -4,6 +4,7 @@
       <file>tests/VisitorBasicTest.php</file>
       <file>tests/VisitorHttpRequestTest.php</file>
       <file>tests/VisitorCollectTest.php</file>
+      <file>tests/VisitorCookieTest.php</file>
       <file>tests/VisitorCrawlTest.php</file>
     </testsuite>
   </testsuites>
