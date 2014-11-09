@@ -1,6 +1,6 @@
 <?php
 
-class VisitorCookieTEst extends VisitorTestBase {
+class VisitorCookieTest extends VisitorTestBase {
   public function testVisitorCookieParse() {
     // Cookie 1.
     $cookie_string = 'name2=value2; Expires=Wed, 09 Jun 2021 10:18:14 GMT';

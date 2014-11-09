@@ -330,7 +330,17 @@ function visitor_collect_urls($page_html, $page_url, $options = array()) {
 }
 
 function visitor_parse_relative_url($url, $from_info) {
-  $from_base = dirname($from_info['path']);
+  $from_path = $from_info['path'];
+  if (substr($from_path, 1) == '/') {
+    $from_base = $from_path;
+  }
+  else if (strpos($from_path, '.') === FALSE) {
+    $from_base = $from_path;
+  }
+  else {
+    $from_base = dirname($from_path);
+  }
+
   $from_root = $from_info['scheme'] . '://' . $from_info['host'];
 
   // Handle protocol-relative urls.

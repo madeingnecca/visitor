@@ -1,4 +1,7 @@
-<phpunit bootstrap="tests/bootstrap.php">
+<phpunit
+  bootstrap="tests/bootstrap.php"
+  colors="true"
+  verbose="true">
   <testsuites>
     <testsuite name="Visitor Tests">
       <file>tests/VisitorBasicTest.php</file>
@@ -6,6 +9,7 @@
       <file>tests/VisitorCollectTest.php</file>
       <file>tests/VisitorCookieTest.php</file>
       <file>tests/VisitorCrawlTest.php</file>
+      <file>tests/VisitorBugsTest.php</file>
     </testsuite>
   </testsuites>
 </phpunit>

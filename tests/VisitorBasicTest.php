@@ -46,10 +46,11 @@ class VisitorBasicTest extends VisitorTestBase {
     $this->assertEquals(visitor_format_string('%code %url %deep:k2:k2.1', $data), $data['code'] . ' ' . $data['url'] . ' ' . $data['deep']['k2']['k2.1']);
   }
 
-  public function testVisitorResolveRelativeUrl() {
+  public function testVisitorResolveRelativePath() {
     $this->assertEquals('test.html', visitor_resolve_relative_path('', 'test.html'));
     $this->assertEquals('/test.html', visitor_resolve_relative_path('/', 'test.html'));
     $this->assertEquals('folder/test.html', visitor_resolve_relative_path('folder', 'test.html'));
+    $this->assertEquals('folder/test.html', visitor_resolve_relative_path('folder/', 'test.html'));
     $this->assertEquals('/test.html', visitor_resolve_relative_path('/', './test.html'));
     $this->assertEquals('/test.html?bobo=3&b=444', visitor_resolve_relative_path('/', 'test.html?bobo=3&b=444'));
     $this->assertEquals('/test.html', visitor_resolve_relative_path('//folder1/', '../test.html'));
@@ -60,5 +61,12 @@ class VisitorBasicTest extends VisitorTestBase {
     $this->assertEquals('/test.html', visitor_resolve_relative_path('//folder1/folder2/folder3/', './../../../test.html'));
     $this->assertEquals('/test.html', visitor_resolve_relative_path('//folder1/folder2/folder3/', '/././../../.././test.html'));
     $this->assertEquals(FALSE, visitor_resolve_relative_path('/', '../test.html'));
+  }
+
+  public function testVisitorParseRelativeUrl() {
+    $from_info = parse_url('http://example.com/folder');
+    $info = visitor_parse_relative_url('image.jpg', $from_info);
+
+    $this->assertEquals('/folder/image.jpg', $info['path']);
   }
 }
