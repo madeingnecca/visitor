@@ -16,6 +16,6 @@ class VisitorBugsTest extends VisitorTestBase {
       'tags' => array('img' => array('src'))
     ));
 
-    $this->assertEquals('http://example.com/folder/image.jpg', $urls[0]['url']);
+    $this->assertEquals('http://example.com/image.jpg', $urls[0]['url']);
   }
 }
