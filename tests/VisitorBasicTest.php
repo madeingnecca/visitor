@@ -66,14 +66,14 @@ class VisitorBasicTest extends VisitorTestBase {
   }
 
   public function testVisitorParseRelativeUrl() {
-    $from_info = parse_url('http://example.com/folder');
+    $from_info = parse_url('http://example.com/a/b/c/folder');
     $info = visitor_parse_relative_url('image.jpg', $from_info);
 
-    $this->assertEquals('/image.jpg', $info['path']);
+    $this->assertEquals('/a/b/c/image.jpg', $info['path']);
 
-    $from_info = parse_url('http://example.com/folder/');
+    $from_info = parse_url('http://example.com/a/b/c/folder/');
     $info = visitor_parse_relative_url('image.jpg', $from_info);
 
-    $this->assertEquals('/folder/image.jpg', $info['path']);
+    $this->assertEquals('/a/b/c/folder/image.jpg', $info['path']);
   }
 }

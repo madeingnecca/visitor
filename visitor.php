@@ -390,7 +390,7 @@ function visitor_resolve_relative_path($base_path, $rel_path) {
   // If base path is not a directory (thus, a file)
   // the last part of the path must not be considered.
   if (!$base_is_dir) {
-    array_shift($base_path_parts);
+    array_pop($base_path_parts);
   }
 
   $count_rel = array_count_values($rel_path_parts);
