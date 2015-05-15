@@ -9,11 +9,11 @@ function visitor_show_usage($extra_error = NULL) {
   }
 
   print "Usage: \n";
-  print $argv[0] . " [-f -u -p --accept-cookies] <url>\n";
+  print $argv[0] . " [-f -u -p --no-cookies] <url>\n";
   print "  -f: String to output whenever a new url is collected. \n";
   print "    Available variables: %url, %code, %content_type, %parent, %headers:<header_name_lowercase>\n";
   print "  -u: Authentication credentials, <user>:<pass>\n";
-  print "  --accept-cookies: 1 = enable, 0 = disable. (Default: 1)\n";
+  print "  --no-cookies: Prevent Visitor to store and send cookies.\n";
   print "\n";
 }
 
@@ -39,7 +39,7 @@ function visitor_requirements() {
   }
 
   if (!extension_loaded('curl')) {
-    die('This script needs CURL extension to make HTTP requests.');
+    die('This script needs CURL extension to perform HTTP requests.');
   }
 }
 
@@ -548,8 +548,8 @@ function visitor_read_arguments($cli_args) {
         $input['options']['http']['auth'] = trim(array_shift($args));
         break;
 
-      case '--accept-cookies':
-        $input['options']['accept_cookies'] = (trim(array_shift($args)) == 1);
+      case '--no-cookies':
+        $input['options']['accept_cookies'] = FALSE;
         break;
 
       default:
