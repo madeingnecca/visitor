@@ -17,18 +17,6 @@ class VisitorBasicTest extends VisitorTestBase {
     $this->assertEquals($result['error'], visitor_get_error('no_url'));
   }
 
-  public function testVisitorReadArgumentsErrorInvalidPresets() {
-    $invalid_presets = array('p1', 'p2');
-
-    $result = visitor_read_arguments(array(
-      'visitor.php',
-      '-p',
-      join('+', $invalid_presets),
-    ));
-
-    $this->assertEquals(visitor_get_error('invalid_presets', $invalid_presets), $result['error']);
-  }
-
   public function testVisitorFormatString() {
     $data = array(
       'code' => '200',

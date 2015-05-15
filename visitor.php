@@ -13,9 +13,7 @@ function visitor_show_usage($extra_error = NULL) {
   print "  -f: String to output whenever a new url is collected. \n";
   print "    Available variables: %url, %code, %content_type, %parent, %headers:<header_name_lowercase>\n";
   print "  -u: Authentication credentials, <user>:<pass>\n";
-  print "  -p: Presets to load. Choose between: " . (join(', ', array_keys(visitor_preset_list()))) . "\n";
-  print "    Multiple presets can be specified using a plus (+) separator. Presets will be merged together.\n";
-  print "  --accept-cookies: Names of the cookies to accept. Use '*' to accept all cookies.\n";
+  print "  --accept-cookies: 1 = enable, 0 = disable. (Default: 1)\n";
   print "\n";
 }
 
@@ -24,10 +22,6 @@ function visitor_get_error($error_key, $error_arg = NULL) {
   switch ($error_key) {
     case 'no_url':
       $message = 'No url given';
-      break;
-
-    case 'invalid_presets':
-      $message = sprintf('Invalid presets %s', join(',', $error_arg));
       break;
   }
 
@@ -503,47 +497,6 @@ function visitor_format_string($format, $data) {
   return $result;
 }
 
-function visitor_preset_list() {
-  $presets = array();
-  $presets['health'] = array(
-    'http' => array(),
-    'collect' => array(
-      'tags' => array(
-        '*' => array('href', 'src'),
-      ),
-    ),
-  );
-
-  $presets['links'] = array(
-    'http' => array(),
-    'collect' => array(
-      'tags' => array(
-        'a' => array('href'),
-      ),
-    ),
-  );
-
-  $presets['media'] = array(
-    'http' => array(),
-    'collect' => array(
-      'tags' => array(
-        'a' => array('href'),
-        'img' => array('src'),
-        'video' => array('src'),
-        'audio' => array('src'),
-        'source' => array('src'),
-        'object' => array('src'),
-      ),
-    ),
-  );
-
-  $presets['liferay'] = array(
-    'exclude' => 'p_p_auth',
-  );
-
-  return $presets;
-}
-
 function visitor_css_to_xpath($css) {
   static $cache;
   if (!isset($cache[$css])) {
@@ -557,43 +510,17 @@ function visitor_css_to_xpath($css) {
   return $cache[$css];
 }
 
-function visitor_array_merge_deep() {
-  $args = func_get_args();
-  return visitor_array_merge_deep_array($args);
-}
-
-function visitor_array_merge_deep_array($arrays) {
-  $result = array();
-  foreach ($arrays as $array) {
-    foreach ($array as $key => $value) {
-      // Renumber integer keys as array_merge_recursive() does. Note that PHP
-      // automatically converts array keys that are integer strings (e.g., '1')
-      // to integers.
-      if (is_integer($key)) {
-        $result[] = $value;
-      }
-      // Recurse when both values are arrays.
-      elseif (isset($result[$key]) && is_array($result[$key]) && is_array($value)) {
-        $result[$key] = visitor_array_merge_deep_array(array($result[$key], $value));
-      }
-      // Otherwise, use the latter value, overriding any previous value.
-      else {
-        $result[$key] = $value;
-      }
-    }
-  }
-  return $result;
-}
-
 function visitor_default_options() {
   return array(
     'http' => array(),
     'collect' => array(
       'allow_external' => FALSE,
+      'tags' => array(
+        '*' => array('src', 'href')
+      ),
     ),
-    'accept-cookies' => FALSE,
-    'format' => '%url %code',
-    'exclude' => FALSE,
+    'accept_cookies' => TRUE,
+    'format' => 'code:%code url:%url parent:%parent',
     'print' => TRUE,
   );
 }
@@ -607,14 +534,9 @@ function visitor_read_arguments($cli_args) {
   // Remove script name.
   array_shift($args);
 
-  $default_options = visitor_default_options();
-  $preset_list = visitor_preset_list();
-  $presets_chosen = array(key($preset_list));
-
   $input = array();
   $input['error'] = FALSE;
-  $input['options'] = array();
-  $input['presets'] = array();
+  $input['options'] = visitor_default_options();
 
   while ((($arg = array_shift($args)) !== NULL) && !$input['error']) {
     switch ($arg) {
@@ -623,23 +545,11 @@ function visitor_read_arguments($cli_args) {
         break;
 
       case '-u':
-        $input['options']['auth'] = trim(array_shift($args));
-        break;
-
-      case '-p':
-        $_presets = explode('+', array_shift($args));
-
-        if ($_unknown_presets = array_diff($_presets, array_keys($preset_list))) {
-          $input['error'] = visitor_get_error('invalid_presets', $_unknown_presets);
-        }
-        else {
-          $input['presets'] = $_presets;
-        }
-
+        $input['options']['http']['auth'] = trim(array_shift($args));
         break;
 
       case '--accept-cookies':
-        $input['options']['accept-cookies'] = trim(array_shift($args));
+        $input['options']['accept_cookies'] = (trim(array_shift($args)) == 1);
         break;
 
       default:
@@ -657,19 +567,7 @@ function visitor_read_arguments($cli_args) {
 
   if (!$input['error']) {
     $result['start_url'] = $start_url;
-
-    if (!empty($input['presets'])) {
-      $presets_chosen = $input['presets'];
-    }
-
-    $options = $default_options;
-    foreach ($presets_chosen as $preset_name) {
-      $options = visitor_array_merge_deep($options, $preset_list[$preset_name]);
-    }
-
-    $options = visitor_array_merge_deep($options, $input['options']);
-
-    $result['options'] = $options;
+    $result['options'] = $input['options'];
   }
 
   return $result;
@@ -690,6 +588,16 @@ function visitor_reset(&$visitor) {
   $visitor['print'] = array();
 }
 
+function visitor_print_visit(&$visitor, $visit) {
+  if ($visitor['options']['print']) {
+    print visitor_format_url($visitor['options']['format'], $visit);
+    print "\n";
+  }
+  else {
+    $visitor['print'][] = $visit;
+  }
+}
+
 function visitor_run(&$visitor) {
   $queue = array();
   $cookies = array();
@@ -704,16 +612,6 @@ function visitor_run(&$visitor) {
   $visited = array();
   $queue[] = array('url' => $start_url, 'url_info' => $start_info);
 
-  $print_visit = function($data) use ($visitor, $options) {
-    if ($visitor['options']['print']) {
-      print visitor_format_url($options['format'], $data);
-      print "\n";
-    }
-    else {
-      $visitor['print'][] = $data;
-    }
-  };
-
   // Ensure queue can be dispatched successfully without raising timelimit errors.
   set_time_limit(0);
 
@@ -725,11 +623,6 @@ function visitor_run(&$visitor) {
 
     // Skip already visited urls.
     if (isset($visited[$url])) {
-      continue;
-    }
-
-    // Skip urls we want to exclude via regular expressions.
-    if ($options['exclude'] !== FALSE && preg_match('@' . $options['exclude'] . '@', $url)) {
       continue;
     }
 
@@ -771,7 +664,7 @@ function visitor_run(&$visitor) {
     if (!$fetch) {
       $visit += $response_head;
 
-      $print_visit($visit);
+      visitor_print_visit($visitor, $visit);
     }
     else {
       $response = visitor_http_request($url, array_merge($options['http'], array(
@@ -781,15 +674,13 @@ function visitor_run(&$visitor) {
       // If the response contains cookies, accept only those specified by arguments.
       if (!empty($response['cookies'])) {
         foreach ($response['cookies'] as $response_cookie) {
-          if ($options['accept-cookies'] !== FALSE) {
-            if ($options['accept-cookies'] === '*' || in_array($response_cookie['name'], $options['accept-cookies'])) {
-              if (visitor_cookie_can_be_set($response_cookie, $host)) {
-                if (!isset($cookies[$host])) {
-                  $cookies[$host] = array();
-                }
-
-                $cookies[$host][$response_cookie['name']] = $response_cookie;
+          if ($options['accept_cookies']) {
+            if (visitor_cookie_can_be_set($response_cookie, $host)) {
+              if (!isset($cookies[$host])) {
+                $cookies[$host] = array();
               }
+
+              $cookies[$host][$response_cookie['name']] = $response_cookie;
             }
           }
         }
@@ -805,7 +696,7 @@ function visitor_run(&$visitor) {
           $redirect_data = $visit + $redirect_response;
           $redirect_data['url'] = $redirect_response['url'];
 
-          $print_visit($redirect_data);
+          visitor_print_visit($visitor, $redirect_data);
         }
 
         $visit += $response;
@@ -824,7 +715,7 @@ function visitor_run(&$visitor) {
         }
       }
 
-      $print_visit($visit);
+      visitor_print_visit($visitor, $visit);
 
       $is_web_page = (strpos($response['content_type'], 'text/html') === 0);
 
