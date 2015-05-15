@@ -36,4 +36,29 @@ class VisitorCookieTest extends VisitorTestBase {
     $this->assertEquals(FALSE, $cookie['session']);
     $this->assertEquals(TRUE, $cookie['httponly']);
   }
+
+  public function testVisitorCookieMatchDomain() {
+    // Read: We have a cookie with a domain part "DP", will it be sent for domain "D"?
+    $this->assertTrue(visitor_cookie_domain_matches(array('domain' => '.test.com'), 'test.com'));
+    $this->assertTrue(visitor_cookie_domain_matches(array('domain' => '.test.com'), 'a.test.com'));
+    $this->assertTrue(visitor_cookie_domain_matches(array('domain' => '.test.com'), 'a.b.c.test.com'));
+    $this->assertFalse(visitor_cookie_domain_matches(array('domain' => '.test.com'), 'test2.com'));
+  }
+
+  public function testVisitorCookieMatchPath() {
+    // Read: We have a cookie with a path part "PP", will it be sent if for the current path "P"?
+    $this->assertTrue(visitor_cookie_path_matches(array('path' => '/'), '/'));
+    $this->assertTrue(visitor_cookie_path_matches(array('path' => '/'), '/a'));
+    $this->assertTrue(visitor_cookie_path_matches(array('path' => '/'), '/a/b/c'));
+    $this->assertTrue(visitor_cookie_path_matches(array('path' => '/a'), '/a'));
+    $this->assertTrue(visitor_cookie_path_matches(array('path' => '/a'), '/a/'));
+    $this->assertTrue(visitor_cookie_path_matches(array('path' => '/a/'), '/a'));
+    $this->assertTrue(visitor_cookie_path_matches(array('path' => '/a/'), '/a/'));
+
+    $this->assertTrue(visitor_cookie_path_matches(array('path' => '/a'), '/a/b/c'));
+    $this->assertTrue(visitor_cookie_path_matches(array('path' => '/a/'), '/a/b/c'));
+
+    $this->assertFalse(visitor_cookie_path_matches(array('path' => '/it'), '/'));
+    $this->assertFalse(visitor_cookie_path_matches(array('path' => '/it'), '/'));
+  }
 }

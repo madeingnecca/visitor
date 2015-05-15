@@ -184,7 +184,7 @@ function visitor_http_request_parse_headers($headers_string) {
   return $headers;
 }
 
-function visitor_parse_cookie($cookie_data) {
+function visitor_parse_cookie($cookie_data, $context = array()) {
   $cookie = array(
     'path' => '/',
     'secure' => FALSE,
@@ -216,6 +216,15 @@ function visitor_parse_cookie($cookie_data) {
   return $cookie;
 }
 
+function visitor_cookie_can_be_set($cookie, $domain) {
+  // Unlike real browsers, Visitor will accept all cookies.
+  return TRUE;
+}
+
+/**
+ * This implementation is based on the great piece of information
+ * that can be found at http://stackoverflow.com/questions/1062963/how-do-browser-cookie-domains-work
+ */
 function visitor_cookie_matches($cookie, $query) {
   if (isset($cookie['expires_time']) && $cookie['expires_time'] < $query['now']) {
     return FALSE;
@@ -225,20 +234,43 @@ function visitor_cookie_matches($cookie, $query) {
     return FALSE;
   }
 
-  if (!preg_match('@^' . $cookie['path'] . '@', $query['path'])) {
+  if (!visitor_cookie_domain_matches($cookie, $query['domain'])) {
     return FALSE;
   }
 
-  if (($query['domain'] == $cookie['domain']) || ('.' . $query['domain'] == $cookie['domain'])) {
+  if (!visitor_cookie_path_matches($cookie, $query['path'])) {
+    return FALSE;
+  }
+
+  return TRUE;
+}
+
+/**
+ * @See http://tools.ietf.org/html/rfc6265#section-5.1.4
+ */
+function visitor_cookie_path_matches($cookie, $path) {
+  $cookie_path = rtrim($cookie['path'], '/');
+
+  // Cookie path must be a *prefix* of the target path.
+  return preg_match('@^' . $cookie_path . '@', $path) ? TRUE : FALSE;
+}
+
+/**
+ * @See http://tools.ietf.org/html/rfc6265#section-5.1.3
+ */
+function visitor_cookie_domain_matches($cookie, $domain) {
+  // RFC 2109 states that cookies should always start with a leading dot.
+  if ($domain[0] !== '.') {
+    $domain = '.' . $domain;
+  }
+
+  if ($cookie['domain'] === '.' . $domain) {
     return TRUE;
   }
 
-  if ($cookie['domain'][0] == '.') {
-    $cookie_domain_regex = '@^.*?' . str_replace('.', '\.', $cookie['domain']) . '@';
-    return preg_match($cookie_domain_regex, $query['domain']);
-  }
-
-  return FALSE;
+  // Cookie domain must be a *suffix* of the target domain.
+  $cookie_domain_regex = '@' . str_replace('.', '\.', $cookie['domain']) . '$@';
+  return preg_match($cookie_domain_regex, $domain) ? TRUE : FALSE;
 }
 
 function visitor_collect_urls($page_html, $page_url, $options = array()) {
@@ -709,7 +741,7 @@ function visitor_run(&$visitor) {
     $request_cookies = array();
     $cookie_query = array(
       'now' => time(),
-      'domain' => $host,
+      'domain' => '.' . $host,
       'path' => $url_data['url_info']['path'],
       'scheme' => $url_data['url_info']['scheme'],
     );
@@ -750,13 +782,14 @@ function visitor_run(&$visitor) {
       if (!empty($response['cookies'])) {
         foreach ($response['cookies'] as $response_cookie) {
           if ($options['accept-cookies'] !== FALSE) {
-            if ($options['accept-cookies'] == '*' || in_array($response_cookie['name'], $options['accept-cookies'])) {
-              $cookie_domain = $response_cookie['domain'];
-              if (!isset($cookies[$cookie_domain])) {
-                $cookies[$cookie_domain] = array();
-              }
+            if ($options['accept-cookies'] === '*' || in_array($response_cookie['name'], $options['accept-cookies'])) {
+              if (visitor_cookie_can_be_set($response_cookie, $host)) {
+                if (!isset($cookies[$host])) {
+                  $cookies[$host] = array();
+                }
 
-              $cookies[$cookie_domain][$response_cookie['name']] = $response_cookie;
+                $cookies[$host][$response_cookie['name']] = $response_cookie;
+              }
             }
           }
         }
