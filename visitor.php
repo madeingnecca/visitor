@@ -23,6 +23,10 @@ function visitor_get_error($error_key, $error_arg = NULL) {
     case 'no_url':
       $message = 'No url given';
       break;
+
+    case 'time_limit_reached':
+      $message = sprintf('Time limit was reached (%s)', $error_arg);
+      break;
   }
 
   return $message;
@@ -51,12 +55,14 @@ function visitor_http_request($url, $options = array()) {
     'method' => 'GET',
     'follow_redirects' => TRUE,
     'cookies' => array(),
+    'connection_timeout' => 10,
   );
 
   if (!$options['follow_redirects']) {
     $options['max_redirects'] = 0;
   }
 
+  $time_start = time();
   $redirects_count = 0;
   $redirects = array();
   $location = $url;
@@ -70,10 +76,14 @@ function visitor_http_request($url, $options = array()) {
     $location = visitor_assemble_url($location_info);
   }
 
+  $time_end = time();
+
   $result = $response;
   $result['redirects'] = $redirects;
   $result['redirects_count'] = $redirects_count;
   $result['last_redirect'] = ($redirects_count > 0 ? $location : FALSE);
+  $result['time_start'] = $time_start;
+  $result['time_end'] = $time_end;
 
   if ($redirects_count > 0 && $redirects_count >= $options['max_redirects']) {
     $result['error'] = 'infinite-loop';
@@ -83,6 +93,7 @@ function visitor_http_request($url, $options = array()) {
 }
 
 function visitor_curl_http_request($url, $options = array()) {
+  $result = array();
   $url_info = parse_url($url);
 
   // If path is not already encoded, encode it now.
@@ -121,35 +132,47 @@ function visitor_curl_http_request($url, $options = array()) {
     curl_setopt($ch, CURLOPT_COOKIE, $cookies_string);
   }
 
+  curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, $options['connection_timeout']);
+
   $data = curl_exec($ch);
-  $headers_size = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
-  $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-  $content_type = curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
-  curl_close($ch);
+  $curl_errno = curl_errno($ch);
 
-  $headers_string = substr($data, 0, $headers_size);
-  $data = substr($data, $headers_size);
-  $headers = visitor_http_request_parse_headers($headers_string);
-  $is_redirect = (in_array($code, array(301, 302)));
+  if ($curl_errno == 0) {
+    $headers_size = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $content_type = curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+    curl_close($ch);
 
-  $cookies = array();
-  if (isset($headers['set-cookie'])) {
-    foreach ($headers['set-cookie'] as $cookie_data) {
-      $cookie = visitor_parse_cookie($cookie_data);
-      $cookie += array('domain' => $url_info['host']);
-      $cookies[$cookie['name']] = $cookie;
+    $headers_string = substr($data, 0, $headers_size);
+    $data = substr($data, $headers_size);
+    $headers = visitor_http_request_parse_headers($headers_string);
+    $is_redirect = (in_array($code, array(301, 302)));
+
+    $cookies = array();
+    if (isset($headers['set-cookie'])) {
+      foreach ($headers['set-cookie'] as $cookie_data) {
+        $cookie = visitor_parse_cookie($cookie_data);
+        $cookie += array('domain' => $url_info['host']);
+        $cookies[$cookie['name']] = $cookie;
+      }
+    }
+
+    $result['error'] = '';
+    $result['data'] = $data;
+    $result['code'] = $code;
+    $result['content_type'] = $content_type;
+    $result['headers'] = $headers;
+    $result['is_redirect'] = $is_redirect;
+    $result['url'] = $url;
+    $result['cookies'] = $cookies;
+  }
+  else {
+    switch ($curl_errno) {
+      case CURLE_OPERATION_TIMEDOUT:
+        $result['error'] = 'connection_timedout';
+        break;
     }
   }
-
-  $result = array();
-  $result['error'] = '';
-  $result['data'] = $data;
-  $result['code'] = $code;
-  $result['content_type'] = $content_type;
-  $result['headers'] = $headers;
-  $result['is_redirect'] = $is_redirect;
-  $result['url'] = $url;
-  $result['cookies'] = $cookies;
 
   return $result;
 }
@@ -273,11 +296,11 @@ function visitor_collect_urls($page_html, $page_url, $options = array()) {
   }
 
   $options += array(
-    'allow_external' => TRUE,
     'tags' => array(),
     'xpath' => array(),
     'css' => array(),
     'protocols' => array('http', 'https'),
+    'exclude' => array(),
   );
 
   $url_info = parse_url($page_url);
@@ -342,9 +365,11 @@ function visitor_collect_urls($page_html, $page_url, $options = array()) {
 
     $value_assembled = visitor_assemble_url($value_info);
 
-    $collect = $options['allow_external'] || ($value_info['host'] == $url_info['host']);
+    if (in_array($value_assembled, $options['exclude'])) {
+      continue;
+    }
 
-    $result[] = array('url' => $value_assembled, 'collect' => $collect, 'url_info' => $url_info);
+    $result[] = array('url' => $value_assembled, 'url_info' => $url_info);
   }
 
   // Prevents DOMDocument memory leaks caused by internal logs.
@@ -512,9 +537,10 @@ function visitor_css_to_xpath($css) {
 
 function visitor_default_options() {
   return array(
+    'allow_external' => FALSE,
+    'time_limit' => FALSE,
     'http' => array(),
     'collect' => array(
-      'allow_external' => FALSE,
       'tags' => array(
         '*' => array('src', 'href')
       ),
@@ -585,17 +611,32 @@ function visitor_reset(&$visitor) {
   $visitor['cookies'] = array();
   $visitor['queue'] = array();
   $visitor['visited'] = array();
-  $visitor['print'] = array();
+  $visitor['log'] = array();
 }
 
-function visitor_print_visit(&$visitor, $visit) {
+function visitor_log(&$visitor, $data) {
+  $data += array('timestamp' => time());
+
   if ($visitor['options']['print']) {
-    print visitor_format_url($visitor['options']['format'], $visit);
-    print "\n";
+    switch ($data['type']) {
+      case 'visit':
+        print visitor_format_url($visitor['options']['format'], $data['visit']);
+        print "\n";
+        break;
+
+      default:
+        print strtoupper($data['type']) . ": " . $data['message'];
+        print "\n";
+        break;
+    }
   }
   else {
-    $visitor['print'][] = $visit;
+    $visitor['log'][] = $data;
   }
+}
+
+function visitor_log_visit(&$visitor, $visit) {
+  visitor_log($visitor, array('type' => 'visit', 'visit' => $visit));
 }
 
 function visitor_run(&$visitor) {
@@ -617,7 +658,7 @@ function visitor_run(&$visitor) {
 
   while (!empty($queue)) {
     $url_data = array_pop($queue);
-    $url_data += array('parents' => array(), 'collect' => TRUE, 'parent' => '');
+    $url_data += array('parents' => array(), 'parent' => '');
     $url = $url_data['url'];
     $host = $url_data['url_info']['host'];
 
@@ -664,7 +705,7 @@ function visitor_run(&$visitor) {
     if (!$fetch) {
       $visit += $response_head;
 
-      visitor_print_visit($visitor, $visit);
+      visitor_log_visit($visitor, $visit);
     }
     else {
       $response = visitor_http_request($url, array_merge($options['http'], array(
@@ -686,7 +727,8 @@ function visitor_run(&$visitor) {
         }
       }
 
-      $collect = $url_data['collect'];
+      $collect = ($options['allow_external'] || ($host == $start_info['host']));
+
       if ($response['redirects_count'] == 0) {
         $visit += $response;
         $visited[$url] = $visit;
@@ -696,7 +738,7 @@ function visitor_run(&$visitor) {
           $redirect_data = $visit + $redirect_response;
           $redirect_data['url'] = $redirect_response['url'];
 
-          visitor_print_visit($visitor, $redirect_data);
+          visitor_log_visit($visitor, $redirect_data);
         }
 
         $visit += $response;
@@ -710,12 +752,12 @@ function visitor_run(&$visitor) {
         else {
           $visited[$last_redirect_url] = $visit;
 
-          $collect_redirect = $options['collect']['allow_external'] || ($last_redirect_info['host'] == $start_info['host']);
+          $collect_redirect = $options['allow_external'] || ($last_redirect_info['host'] == $start_info['host']);
           $collect = $collect && $collect_redirect;
         }
       }
 
-      visitor_print_visit($visitor, $visit);
+      visitor_log_visit($visitor, $visit);
 
       $is_web_page = (strpos($response['content_type'], 'text/html') === 0);
 
@@ -733,6 +775,17 @@ function visitor_run(&$visitor) {
     }
 
     $visited[$url] = $visit;
+
+    // The url has been visited, so we don't want to collect it anymore.
+    $options['collect']['exclude'][] = $visit;
+
+    if ($options['time_limit'] !== FALSE && (time() - $time_start > $options['time_limit'])) {
+      visitor_log($visitor, array(
+        'type' => 'error', 
+        'message' => visitor_get_error('time_limit_reached', $options['time_limit'])
+      ));
+      break;
+    }
   }
 
   $visitor['queue'] = $queue;
