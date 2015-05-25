@@ -76,4 +76,26 @@ class VisitorHttpRequestTest extends VisitorTestBase {
 
     $this->assertEquals('401', $httpbin_response['http_response']['code']);
   }
+
+  public function testVisitorHttpRequestConnectionTimeout() {
+    $connection_timeout_secs = 20;
+    $profiler = array();
+    $profiler['start'] = time();
+
+    // Thanks
+    // http://stackoverflow.com/questions/100841/artificially-create-a-connection-timeout-error
+    $http_response = visitor_http_request('http://10.255.255.1', array(
+      'connection_timeout' => $connection_timeout_secs,
+    ));
+
+    $profiler['end'] = time();
+
+    $elapsed_secs = ($profiler['end'] - $profiler['start']);
+
+    $this->assertEquals('connection_timedout', $http_response['error']);
+    $this->assertEquals($elapsed_secs, $connection_timeout_secs);
+  }
+
+  public function testVisitorHttpRequestTimeLimit() {
+  }
 }

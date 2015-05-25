@@ -9,6 +9,7 @@
       <file>tests/VisitorCollectTest.php</file>
       <file>tests/VisitorCookieTest.php</file>
       <file>tests/VisitorCrawlTest.php</file>
+      <file>tests/VisitorErrorTest.php</file>
       <file>tests/VisitorBugsTest.php</file>
     </testsuite>
   </testsuites>

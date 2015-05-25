@@ -84,6 +84,7 @@ function visitor_http_request($url, $options = array()) {
   $result['last_redirect'] = ($redirects_count > 0 ? $location : FALSE);
   $result['time_start'] = $time_start;
   $result['time_end'] = $time_end;
+  $result['time_elapsed'] = ($time_end - $time_start);
 
   if ($redirects_count > 0 && $redirects_count >= $options['max_redirects']) {
     $result['error'] = 'infinite-loop';
@@ -93,7 +94,11 @@ function visitor_http_request($url, $options = array()) {
 }
 
 function visitor_curl_http_request($url, $options = array()) {
-  $result = array();
+  $result = array(
+    'code' => -1,
+    'is_redirect' => FALSE,
+  );
+
   $url_info = parse_url($url);
 
   // If path is not already encoded, encode it now.
@@ -644,7 +649,6 @@ function visitor_run(&$visitor) {
   $cookies = array();
   $options = $visitor['options'];
 
-  // Start url is always the last parameter.
   $start_url = $visitor['start_url'];
 
   $start_info = parse_url($start_url);
@@ -653,11 +657,17 @@ function visitor_run(&$visitor) {
   $visited = array();
   $queue[] = array('url' => $start_url, 'url_info' => $start_info);
 
+  if (isset($visitor['queue'])) {
+    $queue = array_merge($queue, $visitor['queue']);
+  }
+
   // Ensure queue can be dispatched successfully without raising timelimit errors.
   set_time_limit(0);
 
+  $time_start = time();
+
   while (!empty($queue)) {
-    $url_data = array_pop($queue);
+    $url_data = array_shift($queue);
     $url_data += array('parents' => array(), 'parent' => '');
     $url = $url_data['url'];
     $host = $url_data['url_info']['host'];
@@ -759,17 +769,19 @@ function visitor_run(&$visitor) {
 
       visitor_log_visit($visitor, $visit);
 
-      $is_web_page = (strpos($response['content_type'], 'text/html') === 0);
-
       // Collect urls only if it was a successful response, a page containing html
       // and collection was requested.
-      if ($response['code'] == 200 && $is_web_page && $collect) {
-        $urls = visitor_collect_urls($response['data'], $url, $options['collect']);
+      if ($response['code'] == 200) {
+        $is_web_page = (strpos($response['content_type'], 'text/html') === 0);
 
-        $new_parents = array_merge($url_data['parents'], array($url));
-        foreach ($urls as $collected) {
-          $collected += array('parents' => $new_parents);
-          $queue[] = $collected;
+        if ($collect && $is_web_page) {
+          $urls = visitor_collect_urls($response['data'], $url, $options['collect']);
+
+          $new_parents = array_merge($url_data['parents'], array($url));
+          foreach ($urls as $collected) {
+            $collected += array('parents' => $new_parents);
+            $queue[] = $collected;
+          }
         }
       }
     }
@@ -779,9 +791,10 @@ function visitor_run(&$visitor) {
     // The url has been visited, so we don't want to collect it anymore.
     $options['collect']['exclude'][] = $visit;
 
-    if ($options['time_limit'] !== FALSE && (time() - $time_start > $options['time_limit'])) {
+    if ($options['time_limit'] !== FALSE && ((time() - $time_start) > $options['time_limit'])) {
       visitor_log($visitor, array(
-        'type' => 'error', 
+        'type' => 'error',
+        'error' => 'time_limit_reached',
         'message' => visitor_get_error('time_limit_reached', $options['time_limit'])
       ));
       break;
