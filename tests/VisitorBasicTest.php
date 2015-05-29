@@ -1,20 +1,20 @@
 <?php
 
 class VisitorBasicTest extends VisitorTestBase {
-  public function testVisitorReadArgumentsNoUrl() {
-    $result = visitor_read_arguments(array(
+  public function testVisitorConsole() {
+    $console = visitor_console(array(
       'visitor.php',
     ));
 
-    $this->assertEquals($result['error'], visitor_get_error('no_url'));
+    $this->assertEquals($console['error'], visitor_get_error('no_url'));
 
-    $result = visitor_read_arguments(array(
+    $console = visitor_console(array(
       'visitor.php',
       '-f',
       '%code %url'
     ));
 
-    $this->assertEquals($result['error'], visitor_get_error('no_url'));
+    $this->assertEquals($console['error'], visitor_get_error('no_url'));
   }
 
   public function testVisitorFormatString() {

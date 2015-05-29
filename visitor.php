@@ -56,35 +56,48 @@ function visitor_http_request($url, $options = array()) {
     'follow_redirects' => TRUE,
     'cookies' => array(),
     'connection_timeout' => 10,
+    'time_limit' => 20,
   );
 
   if (!$options['follow_redirects']) {
     $options['max_redirects'] = 0;
   }
 
-  $time_start = time();
   $redirects_count = 0;
   $redirects = array();
   $location = $url;
   $location_info = parse_url($url);
   $location_info += array('scheme' => 'http', 'path' => '');
+
+  $time_start = time();
+  $redirect_time_start = $time_start;
+  $time_elapsed_secs = 0;
+
   while (($response = visitor_curl_http_request($location, $options)) && $response['is_redirect'] && ($redirects_count < $options['max_redirects'])) {
     $redirects[] = $response;
     $redirects_count++;
     $location_header = $response['headers']['location'][0];
     $location_info = visitor_parse_relative_url($location_header, $location_info);
     $location = visitor_assemble_url($location_info);
-  }
 
-  $time_end = time();
+    $redirect_time_end = time();
+    $time_elapsed_secs += $redirect_time_end - $redirect_time_start;
+    $redirect_time_start = $redirect_time_end;
+
+    if ($time_elapsed_secs > $options['time_limit']) {
+      $result['code'] = -1;
+      $result['error'] = 'time_limit_reached_caused_by_redirects';
+      break;
+    }
+  }
 
   $result = $response;
   $result['redirects'] = $redirects;
   $result['redirects_count'] = $redirects_count;
   $result['last_redirect'] = ($redirects_count > 0 ? $location : FALSE);
   $result['time_start'] = $time_start;
-  $result['time_end'] = $time_end;
-  $result['time_elapsed'] = ($time_end - $time_start);
+  $result['time_end'] = $time_start + $time_elapsed_secs;
+  $result['time_elapsed'] = $time_elapsed_secs;
 
   if ($redirects_count > 0 && $redirects_count >= $options['max_redirects']) {
     $result['error'] = 'infinite-loop';
@@ -543,7 +556,7 @@ function visitor_css_to_xpath($css) {
 function visitor_default_options() {
   return array(
     'allow_external' => FALSE,
-    'time_limit' => FALSE,
+    'time_limit' => 30 * 60,
     'http' => array(),
     'collect' => array(
       'tags' => array(
@@ -559,7 +572,7 @@ function visitor_default_options() {
 /**
  * Read argument from a list of parsed command line options.
  */
-function visitor_read_arguments($cli_args) {
+function visitor_console($cli_args) {
   $args = $cli_args;
 
   // Remove script name.
@@ -571,6 +584,10 @@ function visitor_read_arguments($cli_args) {
 
   while ((($arg = array_shift($args)) !== NULL) && !$input['error']) {
     switch ($arg) {
+      case '--project':
+        $project_file = getcwd() . '/visitor.json';
+        break;
+
       case '-f':
         $input['options']['format'] = trim(array_shift($args));
         break;
@@ -590,18 +607,56 @@ function visitor_read_arguments($cli_args) {
   }
 
   if (!$input['error'] && !isset($start_url)) {
-    $input['error']  = visitor_get_error('no_url');
+    $input['error'] = visitor_get_error('no_url');
   }
 
-  $result = array();
-  $result['error'] = $input['error'];
+  if (!$input['error'] && isset($project_file) && !file_exists($project_file)) {
+    $input['error'] = visitor_get_error('no_project_file');
+  }
+
+  $console = array();
+  $console['error'] = $input['error'];
+  $console['visitor'] = array();
 
   if (!$input['error']) {
-    $result['start_url'] = $start_url;
-    $result['options'] = $input['options'];
+    if (isset($project_file)) {
+      $project = visitor_load_project($project_file);
+
+      if ($project['error']) {
+        $console['error'] = $project['error'];
+      }
+      else {
+        $console['visitor'] = $project['error'];
+        $console['visitor']['options'] = array_merge($console['visitor']['options'], $input['options']);
+      }
+    }
+    else {
+      $console['visitor']['start_url'] = $start_url;
+      $console['visitor']['options'] = $input['options'];
+    }
   }
 
-  return $result;
+  return $console;
+}
+
+function visitor_load_project($project_file) {
+  $project = array();
+  $project['error'] = FALSE;
+
+  $content = file_get_contents($project_file);
+  if ($content === FALSE) {
+    $project['error'] = visitor_get_error('invalid_project_file', $project_file);
+    return $project;
+  }
+
+  $json = json_decode($content, TRUE);
+  if ($json === NULL) {
+    $project['error'] = visitor_get_error('invalid_project_file', $project_file);
+    return $project;
+  }
+
+  $project['visitor'] = $json;
+  return $project;
 }
 
 function visitor_init($start_url, $options = array()) {
@@ -806,9 +861,8 @@ function visitor_run(&$visitor) {
   $visitor['cookies'] = $cookies;
 }
 
-// Script begins.
-
 // Call the visitor routine only if we are in the *MAIN* script.
+// Otherwise we are including visitor as a library.
 if (count(debug_backtrace()) > 0) {
   return;
 }
@@ -821,16 +875,15 @@ date_default_timezone_set('UTC');
 // Check for requirements first.
 visitor_requirements();
 
-// Read arguments passed to this script.
+// Read arguments and create the resulting visitor object.
+$console = visitor_console($argv);
 
-$visitor_args = visitor_read_arguments($argv);
-
-if ($visitor_args['error']) {
-  visitor_show_usage($visitor_args['error']);
+if ($console['error']) {
+  visitor_show_usage($console['error']);
   exit(1);
 }
 
-$visitor = visitor_init($visitor_args['start_url'], $visitor_args['options']);
+$visitor = $console['visitor'];
 
 // Run, run, run, as fast as you can.
 visitor_run($visitor);

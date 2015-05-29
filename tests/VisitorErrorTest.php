@@ -1,6 +1,6 @@
 <?php
 
-class VisitorErrorlTest extends VisitorTestBase {  
+class VisitorErrorTest extends VisitorTestBase {  
   public function testVisitorErrorConnectionTimedout() {
     $visitor_options = visitor_default_options();
     $visitor_options['print'] = FALSE;
