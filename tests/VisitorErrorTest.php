@@ -15,8 +15,8 @@ class VisitorErrorTest extends VisitorTestBase {
 
     $last_log = $visitor['log'][$log_len - 1];
 
-    $this->assertEquals('visit', $last_log['type']);
-    $this->assertNotEmpty($last_log['visit']['error']);
+    $this->assertEquals('error', $last_log['type']);
+    $this->assertNotEmpty($last_log['error']);
   }
 
   public function testVisitorErrorTimeLimit() {

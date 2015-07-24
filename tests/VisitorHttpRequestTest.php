@@ -15,24 +15,19 @@ class VisitorHttpRequestTest extends VisitorTestBase {
   public function testVisitorHttpRequestRedirects() {
     $httpbin_response = $this->httpbinHttpRequest('redirect-to?url=http://www.google.it/');
     $this->assertEquals('200', $httpbin_response['http_response']['code']);
-    $this->assertEquals('http://www.google.it/', $httpbin_response['http_response']['last_redirect']);
 
     $httpbin_response = $this->httpbinHttpRequest('redirect-to?url=http://www.google.it/i-do-not-exist');
     $this->assertEquals('404', $httpbin_response['http_response']['code']);
 
-    $httpbin_response = $this->httpbinHttpRequest('relative-redirect/10');
-    $this->assertEquals('200', $httpbin_response['http_response']['code']);
-    $this->assertEquals(10, $httpbin_response['http_response']['redirects_count']);
-
     $httpbin_response = $this->httpbinHttpRequest('relative-redirect/100');
     $this->assertEquals('302', $httpbin_response['http_response']['code']);
-    $this->assertEquals('infinite-loop', $httpbin_response['http_response']['error']);
+    $this->assertEquals('too_many_redirects', $httpbin_response['http_response']['error']);
 
     $httpbin_response = $this->httpbinHttpRequest('relative-redirect/30', array(
       'http_params' => array('max_redirects' => 200),
     ));
     $this->assertEquals('200', $httpbin_response['http_response']['code']);
-    $this->assertNotEquals('infinite-loop', (isset($httpbin_response['http_response']['error']) ? $httpbin_response['http_response']['error'] : ''));
+    $this->assertNotEquals('too_many_redirects', (isset($httpbin_response['http_response']['error']) ? $httpbin_response['http_response']['error'] : ''));
   }
 
   public function testVisitorHttpRequestUserAgent() {
@@ -94,8 +89,5 @@ class VisitorHttpRequestTest extends VisitorTestBase {
 
     $this->assertEquals('connection_timedout', $http_response['error']);
     $this->assertEquals($elapsed_secs, $connection_timeout_secs);
-  }
-
-  public function testVisitorHttpRequestTimeLimit() {
   }
 }

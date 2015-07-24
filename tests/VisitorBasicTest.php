@@ -6,7 +6,8 @@ class VisitorBasicTest extends VisitorTestBase {
       'visitor.php',
     ));
 
-    $this->assertEquals($console['error'], visitor_get_error('no_url'));
+    $this->assertEquals($console['error']['key'], 'no_url');
+    $this->assertEquals($console['error']['message'], visitor_get_error('no_url'));
 
     $console = visitor_console(array(
       'visitor.php',
@@ -14,7 +15,8 @@ class VisitorBasicTest extends VisitorTestBase {
       '%code %url'
     ));
 
-    $this->assertEquals($console['error'], visitor_get_error('no_url'));
+    $this->assertEquals($console['error']['key'], 'no_url');
+    $this->assertEquals($console['error']['message'], visitor_get_error('no_url'));
   }
 
   public function testVisitorFormatString() {
