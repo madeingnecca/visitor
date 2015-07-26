@@ -503,7 +503,16 @@ function visitor_resolve_relative_path($base_path, $rel_path) {
 }
 
 function visitor_assemble_url($parsed) {
-  $assembled = $parsed['scheme'] . '://' . rtrim($parsed['host'], '/\\') . '/' . ltrim($parsed['path'], '/\\');
+  $assembled = $parsed['scheme'] . '://' . rtrim($parsed['host'], '/\\');
+
+  if (isset($parsed['port'])) {
+    $assembled .= ':' . $parsed['port'];
+  }
+
+  if (isset($parsed['path'])) {
+    $assembled .= '/' . ltrim($parsed['path'], '/\\');
+  }
+
   if (isset($parsed['query'])) {
     $assembled .= '?' . str_replace('&amp;', '&', $parsed['query']);
   }
@@ -577,7 +586,7 @@ function visitor_default_options() {
   return array(
     'allow_external' => FALSE,
     'time_limit' => 30 * 60,
-    'request_max_redirects' => 15,
+    'request_max_redirects' => 10,
     'http' => array(),
     'collect' => array(
       'tags' => array(
@@ -688,8 +697,17 @@ function visitor_load_project($project_file) {
 function visitor_init($start_url, $options = NULL) {
   $visitor = array();
   visitor_reset($visitor);
+
   $visitor['start_url'] = $start_url;
-  $visitor['options'] = (isset($options) ? $options : visitor_default_options());
+
+  if (isset($options)) {
+    $options = array_merge(visitor_default_options(), $options);
+  }
+  else {
+    $options = visitor_default_options();
+  }
+
+  $visitor['options'] = $options;
   return $visitor;
 }
 
@@ -712,6 +730,8 @@ function visitor_log(&$visitor, $data) {
         print "\n";
         break;
 
+      case 'error':
+      case 'warning':
       default:
         print strtoupper($data['type']) . ": " . $data['message'];
         print "\n";
@@ -844,15 +864,15 @@ function visitor_run(&$visitor) {
 
         if ($redirects_count > $options['request_max_redirects']) {
           visitor_log($visitor, array(
-            'type' => 'error', 
-            'error' => 'too_many_redirects',
+            'type' => 'warning', 
+            'key' => 'too_many_redirects',
             'data' => array(
               'url' => $url,
             ),
             'message' => visitor_get_error('too_many_redirects', $url),
           ));
 
-          // Exit loop.
+          // Stop following redirects.
           break;
         }
         else if ($response_redirect['is_redirect']) {
@@ -868,8 +888,9 @@ function visitor_run(&$visitor) {
           if (visitor_timer_expired($visitor, 'queue')) {
             visitor_log($visitor, array(
               'type' => 'error',
-              'error' => 'time_limit_reached',
+              'key' => 'time_limit_reached',
               'data' => array(
+                'time_limit' => $options['time_limit'],
                 'last_url' => $url,
               ),
               'message' => visitor_get_error('time_limit_reached', $options['time_limit'], $url)
@@ -943,8 +964,9 @@ function visitor_run(&$visitor) {
     if ($visitor['error'] != 'time_limit_reached' && visitor_timer_expired($visitor, 'queue')) {
       visitor_log($visitor, array(
         'type' => 'error',
-        'error' => 'time_limit_reached',
+        'key' => 'time_limit_reached',
         'data' => array(
+          'time_limit' => $options['time_limit'],
           'last_url' => $url,
         ),
         'message' => visitor_get_error('time_limit_reached', $options['time_limit'], $url)

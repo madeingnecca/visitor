@@ -16,10 +16,32 @@ class VisitorErrorTest extends VisitorTestBase {
     $last_log = $visitor['log'][$log_len - 1];
 
     $this->assertEquals('error', $last_log['type']);
-    $this->assertNotEmpty($last_log['error']);
+    $this->assertNotEmpty($last_log['key']);
   }
 
   public function testVisitorErrorTimeLimit() {
+    $this->webserverStart();
+
+    $visitor = visitor_init($this->webserverUrl('time_limit'), array(
+      'print' => FALSE,
+      'http' => array(
+        'connection_timeout' => 999
+      ),
+      'time_limit'=> 30,
+    ));
+
+    visitor_run($visitor);
+
+    var_dump($visitor['log']);
+
+    $log_len = count($visitor['log']);
+    $last_log = $visitor['log'][$log_len - 1];
+
+    $this->assertEquals('error', $last_log['type']);
+    $this->assertEquals('time_limit_reached', $last_log['key']); 
+  }
+
+  public function tstVisitorErrorTimeLimit() {
     $profiler = array();
     $profiler['start'] = time();
 

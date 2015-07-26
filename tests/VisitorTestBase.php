@@ -9,7 +9,7 @@ class VisitorTestBase extends PHPUnit_Framework_TestCase {
       'webserver' => array(
         'host' => 'localhost',
         'port' => '9000',
-        'docroot' => __DIR__,
+        'docroot' => __DIR__ . '/test_sites',
       ),
     );
   }
@@ -19,8 +19,7 @@ class VisitorTestBase extends PHPUnit_Framework_TestCase {
   }
 
   public function webserverStart() {
-    // Command that starts the built-in web server
-    $command = sprintf(
+    $command_webserver_start = sprintf(
       'php -S %s:%d -t %s >/dev/null 2>&1 & echo $!',
       $this->_config['webserver']['host'],
       $this->_config['webserver']['port'],
@@ -28,10 +27,13 @@ class VisitorTestBase extends PHPUnit_Framework_TestCase {
     );
 
     $output = array();
-    exec($command, $output);
+    exec($command_webserver_start, $output);
     $pid = (int) $output[0];
 
     $this->_webserver_pid = $pid;
+
+    // Wait for the webserver to load completely.
+    sleep(3);
   }
 
   public function webserverStop() {
