@@ -23,7 +23,7 @@ class VisitorCrawlTest extends VisitorTestBase {
       'tags' => array('a' => array('href')),
     );
 
-    $visitor = visitor_init('http://httpbin.org/links/10/0', $visitor_options);
+    $visitor = visitor_create('http://httpbin.org/links/10/0', $visitor_options);
     visitor_run($visitor);
 
     $this->assertNotEmpty($visitor['visited']);

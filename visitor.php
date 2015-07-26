@@ -64,8 +64,16 @@ function visitor_requirements() {
  *
  * @todo: check for "cookiejar" option.
  */
-function visitor_http_request($url, $options = array()) {
-  $options += array(
+function visitor_http_request($request) {
+  if (is_string($request) && func_num_args() === 2) {
+    $request = array(
+      'url' => func_get_arg(0),
+    );
+
+    $request += func_get_arg(1);
+  }
+
+  $request += array(
     'method' => 'GET',
     'auth' => FALSE,
     'user_agent' => 'Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.8.1.13) Gecko/20080311 Firefox/2.0.0.13',
@@ -76,11 +84,13 @@ function visitor_http_request($url, $options = array()) {
     'cookiejar' => NULL,
   );
 
-  $result = array(
+  $response = array(
     'data' => FALSE,
     'is_redirect' => FALSE,
     'redirect_url' => FALSE,
   );
+
+  $url = $request['url'];
 
   $url_info = parse_url($url);
 
@@ -90,8 +100,8 @@ function visitor_http_request($url, $options = array()) {
     $url = visitor_assemble_url($url_info);
   }
 
-  $options['method'] = strtoupper($options['method']);
-  $method = $options['method'];
+  $request['method'] = strtoupper($request['method']);
+  $method = $request['method'];
 
   $ch = curl_init();
   curl_setopt($ch, CURLOPT_HEADER, TRUE);
@@ -99,9 +109,9 @@ function visitor_http_request($url, $options = array()) {
   curl_setopt($ch, CURLOPT_URL, $url);
   curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, FALSE);
 
-  if ($options['follow_redirects']) {
+  if ($request['follow_redirects']) {
     curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1);
-    curl_setopt($ch, CURLOPT_MAXREDIRS, $options['max_redirects']);
+    curl_setopt($ch, CURLOPT_MAXREDIRS, $request['max_redirects']);
   }
   else {
     curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 0);
@@ -112,15 +122,15 @@ function visitor_http_request($url, $options = array()) {
     curl_setopt($ch, CURLOPT_NOBODY, TRUE);
   }
 
-  curl_setopt($ch, CURLOPT_USERAGENT, $options['user_agent']);
+  curl_setopt($ch, CURLOPT_USERAGENT, $request['user_agent']);
 
-  if ($options['auth']) {
-    curl_setopt($ch, CURLOPT_USERPWD, $options['auth']);
+  if ($request['auth']) {
+    curl_setopt($ch, CURLOPT_USERPWD, $request['auth']);
   }
 
-  if (!empty($options['cookies'])) {
+  if (!empty($request['cookies'])) {
     $_cookies = array();
-    foreach ($options['cookies'] as $cookie_name => $cookie_data) {
+    foreach ($request['cookies'] as $cookie_name => $cookie_data) {
       $cookie_value = !is_array($cookie_data) ? $cookie_data : $cookie_data['value'];
       $_cookies[] = "$cookie_name=$cookie_value";
     }
@@ -129,7 +139,7 @@ function visitor_http_request($url, $options = array()) {
     curl_setopt($ch, CURLOPT_COOKIE, $cookies_string);
   }
 
-  curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, $options['connection_timeout']);
+  curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, $request['connection_timeout']);
 
   $data = curl_exec($ch);
   $curl_errno = curl_errno($ch);
@@ -154,34 +164,34 @@ function visitor_http_request($url, $options = array()) {
     }
   }
 
-  $result['error'] = '';
-  $result['data'] = $data;
-  $result['code'] = $code;
-  $result['content_type'] = $content_type;
-  $result['headers'] = $headers;
-  $result['is_redirect'] = $is_redirect;
-  $result['url'] = $url;
-  $result['cookies'] = $cookies;
+  $response['error'] = '';
+  $response['data'] = $data;
+  $response['code'] = $code;
+  $response['content_type'] = $content_type;
+  $response['headers'] = $headers;
+  $response['is_redirect'] = $is_redirect;
+  $response['url'] = $url;
+  $response['cookies'] = $cookies;
 
   switch ($curl_errno) {
     case 0:
       if ($is_redirect) {
-        $result['redirect_url'] = $headers['location'][0];
+        $response['redirect_url'] = $headers['location'][0];
       }
       break;
 
     case CURLE_TOO_MANY_REDIRECTS:
-      $result['code'] = $code;
-      $result['error'] = 'too_many_redirects';
+      $response['code'] = $code;
+      $response['error'] = 'too_many_redirects';
       break;
 
     case CURLE_OPERATION_TIMEDOUT:
-      $result['code'] = VISITOR_HTTP_CODE_CONNECTION_TIMEDOUT;
-      $result['error'] = 'connection_timedout';
+      $response['code'] = VISITOR_HTTP_CODE_CONNECTION_TIMEDOUT;
+      $response['error'] = 'connection_timedout';
       break;
   }
 
-  return $result;
+  return $response;
 }
 
 function visitor_http_request_parse_headers($headers_string) {
@@ -298,8 +308,8 @@ function visitor_cookie_domain_matches($cookie, $domain) {
 }
 
 function visitor_cookiejar_create() {
-  $cookiejar = new stdClass;
-  $cookiejar->cookies = array();
+  $cookiejar = array();
+  $cookiejar['cookies'] = array();
   return $cookiejar;
 }
 
@@ -649,7 +659,7 @@ function visitor_console($cli_args) {
 
   if ($input['error'] === FALSE) {
     if (isset($project_file)) {
-      $project = visitor_load_project($project_file);
+      $project = visitor_project_load_file($project_file);
 
       if ($project['error']) {
         $console['error'] = $project['error'];
@@ -660,14 +670,14 @@ function visitor_console($cli_args) {
       }
     }
     else {
-      $console['visitor'] = visitor_init($start_url, $input['options']);
+      $console['visitor'] = visitor_create($start_url, $input['options']);
     }
   }
 
   return $console;
 }
 
-function visitor_load_project($project_file) {
+function visitor_project_load_file($project_file) {
   $project = array();
   $project['error'] = FALSE;
 
@@ -690,11 +700,11 @@ function visitor_load_project($project_file) {
   }
 
   $project['name'] = $json['name'];
-  $project['visitor'] = visitor_init($json['start_url'], $json['options']);
+  $project['visitor'] = visitor_create($json['start_url'], $json['options']);
   return $project;
 }
 
-function visitor_init($start_url, $options = NULL) {
+function visitor_create($start_url, $options = NULL) {
   $visitor = array();
   visitor_reset($visitor);
 
@@ -712,7 +722,7 @@ function visitor_init($start_url, $options = NULL) {
 }
 
 function visitor_reset(&$visitor) {
-  $visitor['cookiejar'] = (object) array('cookies' => array());
+  $visitor['cookiejar'] = visitor_cookiejar_create();
   $visitor['queue'] = array();
   $visitor['visited'] = array();
   $visitor['log'] = array();
@@ -833,11 +843,15 @@ function visitor_run(&$visitor) {
     // Try to fetch with HEAD first. In this way if the file is not a web page we avoid
     // the download of unnecessary data.
     $response_target = FALSE;
-    $response_head = visitor_http_request($url, array_merge($options['http'], array(
+
+    $request_head = array_merge($options['http'], array(
+      'url' => $url,
       'method' => 'HEAD',
       'follow_redirects' => FALSE,
-      'cookiejar' => $visitor['cookiejar'],
-    )));
+      'cookiejar' => ($options['cookies_enabled'] ? $visitor['cookiejar'] : NULL)
+    ));
+
+    $response_head = visitor_http_request($request_head);
 
     if ($response_head['error']) {
       visitor_log($visitor, array(
@@ -856,11 +870,14 @@ function visitor_run(&$visitor) {
       ));
 
       do {
-        $response_redirect = visitor_http_request($response_redirect['redirect_url'], array_merge($options['http'], array(
+        $request_redirect = array_merge($options['http'], array(
+          'url' => $response_redirect['redirect_url'],
           'method' => 'HEAD',
           'follow_redirects' => FALSE,
-          'cookiejar' => $visitor['cookiejar'],
-        )));
+          'cookiejar' => ($options['cookies_enabled'] ? $visitor['cookiejar'] : NULL)
+        ));
+
+        $response_redirect = visitor_http_request($request_redirect);
 
         if ($redirects_count > $options['request_max_redirects']) {
           visitor_log($visitor, array(
@@ -937,11 +954,14 @@ function visitor_run(&$visitor) {
         $do_fetch_body = (strpos($response_target['content_type'], 'text/html') === 0);
         
         if ($do_fetch_body) {
-          $response_get = visitor_http_request($response_target['url'], array_merge($options['http'], array(
+          $request_get = array_merge($options['http'], array(
+            'url' => $response_target['url'],
             'method' => 'GET',
             'follow_redirects' => FALSE,
-            'cookiejar' => $visitor['cookiejar'],
-          )));
+            'cookiejar' => ($options['cookies_enabled'] ? $visitor['cookiejar'] : NULL)
+          ));
+
+          $response_get = visitor_http_request($request_get);
 
           $urls = visitor_collect_urls($response_get['data'], $response_get['url'], $options['collect']);
 
