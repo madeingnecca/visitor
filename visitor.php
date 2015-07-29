@@ -100,6 +100,11 @@ function visitor_http_request($request) {
     $url = visitor_assemble_url($url_info);
   }
 
+  // If a cookiejar was provided, get all cookies that can be sent with this request.
+  if (isset($request['cookiejar'])) {
+    $request['cookies'] = visitor_cookiejar_send_cookies($request['cookiejar'], $request['url']);
+  }
+
   $request['method'] = strtoupper($request['method']);
   $method = $request['method'];
 
@@ -131,8 +136,7 @@ function visitor_http_request($request) {
   if (!empty($request['cookies'])) {
     $_cookies = array();
     foreach ($request['cookies'] as $cookie_name => $cookie_data) {
-      $cookie_value = !is_array($cookie_data) ? $cookie_data : $cookie_data['value'];
-      $_cookies[] = "$cookie_name=$cookie_value";
+      $_cookies[] = visitor_cookie_serialize($cookie_data);
     }
 
     $cookies_string = join('; ', $_cookies);
@@ -158,13 +162,13 @@ function visitor_http_request($request) {
   $cookies = array();
   if (isset($headers['set-cookie'])) {
     foreach ($headers['set-cookie'] as $cookie_data) {
-      $cookie = visitor_parse_cookie($cookie_data);
+      $cookie = visitor_cookie_parse($cookie_data);
       $cookie += array('domain' => '.' . $url_info['host']);
       $cookies[$cookie['name']] = $cookie;
     }
   }
 
-  $response['error'] = '';
+  $response['error'] = FALSE;
   $response['data'] = $data;
   $response['code'] = $code;
   $response['content_type'] = $content_type;
@@ -173,10 +177,19 @@ function visitor_http_request($request) {
   $response['url'] = $url;
   $response['cookies'] = $cookies;
 
+  // If a cookiejar was provided and we have cookies within the response,
+  // import them inside the jar and then return the resulting jar with the final response.
+  if (isset($request['cookiejar']) && !empty($response['cookies'])) {
+    $merged_cookiejar = $request['cookiejar'];
+    visitor_cookiejar_import_response_cookies($merged_cookiejar, $response['cookies'], $request['url']);
+    $response['cookiejar'] = $merged_cookiejar;
+  }
+
   switch ($curl_errno) {
     case 0:
       if ($is_redirect) {
-        $response['redirect_url'] = $headers['location'][0];
+        $redirect_info = visitor_parse_relative_url($headers['location'][0], $url_info);
+        $response['redirect_url'] = visitor_assemble_url($redirect_info);
       }
       break;
 
@@ -218,19 +231,20 @@ function visitor_http_request_parse_headers($headers_string) {
   return $headers;
 }
 
-function visitor_parse_cookie($cookie_data, $context = array()) {
+function visitor_cookie_parse($cookie_data) {
   $cookie = array(
     'path' => '/',
     'secure' => FALSE,
     'httponly' => FALSE,
     'session' => TRUE,
+    'raw' => $cookie_data,
   );
 
   $exploded = explode('; ', $cookie_data);
   $parts = array();
   foreach ($exploded as $part) {
     list($name, $value) = explode('=', $part) + array('', TRUE);
-    $parts[] = array($name, $value);
+    $parts[] = array(rawurldecode($name), rawurldecode($value));
   }
 
   $first = array_shift($parts);
@@ -248,6 +262,12 @@ function visitor_parse_cookie($cookie_data, $context = array()) {
   }
 
   return $cookie;
+}
+
+function visitor_cookie_serialize($cookie) {
+  $cookie_name = $cookie['name'];
+  $cookie_value = $cookie['value'];
+  return rawurlencode($cookie_name) . '=' . rawurlencode($cookie_value);
 }
 
 function visitor_cookie_can_be_accepted($cookie, $domain) {
@@ -314,18 +334,18 @@ function visitor_cookiejar_create() {
 }
 
 function visitor_cookiejar_send_cookies($cookiejar, $url) {
-  $url_data = parse_url($url);
+  $url_info = parse_url($url);
+  $url_info += array('scheme' => 'http', 'path' => '');
 
   $request_cookies = array();
   $cookie_query = array(
     'now' => time(),
-    'domain' => '.' . $host,
-    'path' => $url_data['url_info']['path'],
-    'scheme' => $url_data['url_info']['scheme'],
+    'domain' => '.' . $url_info['host'],
+    'path' => $url_info['path'],
+    'scheme' => $url_info['scheme'],
   );
 
-  // Send cookies available for this domain/path/conditions.
-  foreach ($cookiejar as $domain => $cookies_list) {
+  foreach ($cookiejar['cookies'] as $cookie) {
     if (visitor_cookie_matches($cookie, $cookie_query)) {
       $request_cookies[$cookie['name']] = $cookie;
     }
@@ -334,8 +354,60 @@ function visitor_cookiejar_send_cookies($cookiejar, $url) {
   return $request_cookies;
 }
 
-function visitor_cookiejar_import_response_cookies($cookiejar, $url, $response_cookies) {
-  // @todo: implement
+function visitor_cookiejar_import_response_cookies(&$cookiejar, $response_cookies, $url) {
+  $now = time();
+
+  foreach ($response_cookies as $cookie_name => $cookie) {
+    $cookie_key = visitor_cookiejar_cookie_key($cookie);
+    if (isset($cookiejar['cookies'][$cookie_key])) {
+      // Instead of updating the "expires" property, just delete the cookie.
+      if ($cookie['expires_time'] < $now) {
+        unset($cookiejar['cookies'][$cookie_key]);
+      }
+      else {
+        // Otherwise just overwrite the data we have for this cookie.
+        $cookiejar['cookies'][$cookie_key] = $cookie;
+      }
+    }
+    else {
+      // Add the new cookie.
+      $cookiejar['cookies'][$cookie_key] = $cookie;
+    }
+  }
+}
+
+function visitor_cookiejar_cookie_key($cookie) {
+  // Generate a key using properties that identify a cookie.
+  $raw_key = 'name:' . $cookie['name'] . '|' . 'domain:' . $cookie['domain'] . '|' . 'path:' . $cookie['path'];
+  $hashed_key = hash('sha256', $raw_key);
+  return $hashed_key;
+}
+
+function visitor_cookiejar_to_string(&$cookiejar) {
+  $json_cookies = array();
+  foreach ($cookiejar['cookies'] as $cookie) {
+    $json_cookie = $cookie;
+    $json_cookies[] = $json_cookie;
+  }
+
+  // JSON_PRETTY_PRINT is only available for PHP >= 5.4.
+  // For older PHP versions print a non pretty JSON. 
+  if (defined('JSON_PRETTY_PRINT')) {
+    return json_encode($json_cookies, JSON_PRETTY_PRINT);
+  }
+  else {
+    return json_encode($json_cookies);
+  }
+}
+
+function visitor_cookiejar_write(&$cookiejar, $file_uri) {
+  $string = visitor_cookiejar_to_string($cookiejar);
+
+  if (file_put_contents($file_uri, $string) === FALSE) {
+    return FALSE;
+  }
+
+  return TRUE;
 }
 
 function visitor_collect_urls($page_html, $page_url, $options = array()) {
@@ -595,7 +667,7 @@ function visitor_css_to_xpath($css) {
 function visitor_default_options() {
   return array(
     'allow_external' => FALSE,
-    'time_limit' => 30 * 60,
+    'time_limit' => 30 * 1,
     'request_max_redirects' => 10,
     'http' => array(),
     'collect' => array(
@@ -604,6 +676,7 @@ function visitor_default_options() {
       ),
     ),
     'cookies_enabled' => TRUE,
+    'cookiejar' => FALSE,
     'format' => 'code:%code url:%url parent:%parent',
     'print' => TRUE,
   );
@@ -638,6 +711,10 @@ function visitor_console($cli_args) {
 
       case '--no-cookies':
         $input['options']['cookies_enabled'] = FALSE;
+        break;
+
+      case '--cookiejar':
+        $input['options']['cookiejar'] = trim(array_shift($args));
         break;
 
       default:
@@ -853,6 +930,10 @@ function visitor_run(&$visitor) {
 
     $response_head = visitor_http_request($request_head);
 
+    if (isset($response_head['cookiejar'])) {
+      $visitor['cookiejar'] = $response_head['cookiejar'];
+    }
+
     if ($response_head['error']) {
       visitor_log($visitor, array(
         'type' => 'error', 
@@ -878,6 +959,10 @@ function visitor_run(&$visitor) {
         ));
 
         $response_redirect = visitor_http_request($request_redirect);
+
+        if (isset($response_redirect['cookiejar'])) {
+          $visitor['cookiejar'] = $response_redirect['cookiejar'];
+        }
 
         if ($redirects_count > $options['request_max_redirects']) {
           visitor_log($visitor, array(
@@ -995,7 +1080,14 @@ function visitor_run(&$visitor) {
     }
   }
 
+  // We don't need the "queue" timer anymore.
   visitor_timer_destroy($visitor, 'queue');
+
+  if ($options['cookiejar']) {
+    if (visitor_cookiejar_write($visitor['cookiejar'], $options['cookiejar']) === FALSE) {
+      // @todo: handle error.
+    }
+  }
 }
 
 // Call the visitor routine only if we are in the *MAIN* script.
