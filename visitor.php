@@ -12,7 +12,7 @@ function visitor_show_usage($extra_error = NULL) {
 
   print "Usage: \n";
   print $argv[0] . " [-f -u -p --no-cookies] <url>\n";
-  print "  -f: String to output whenever a new url is collected. \n";
+  print "  -f: String to output whenever Visitor \"visits\" a new url. \n";
   print "    Available variables: %url, %code, %content_type, %parent, %headers:<header_name_lowercase>\n";
   print "  -u: Authentication credentials, <user>:<pass>\n";
   print "  --no-cookies: Tell Visitor not to store or send cookies.\n";
@@ -183,7 +183,7 @@ function visitor_http_request($request) {
   $response['cookies'] = $cookies;
 
   // If a cookiejar was provided and we have cookies within the response,
-  // import them inside the jar and then return the resulting jar with the final response.
+  // import them inside the jar and then return the resulting jar as a property of the final response.
   if (isset($request['cookiejar']) && !empty($response['cookies'])) {
     $merged_cookiejar = $request['cookiejar'];
     visitor_cookiejar_import_response_cookies($merged_cookiejar, $response['cookies'], $request['url']);
@@ -672,7 +672,7 @@ function visitor_css_to_xpath($css) {
 function visitor_default_options() {
   return array(
     'allow_external' => FALSE,
-    'time_limit' => 30 * 1,
+    'time_limit' => 30 * 60,
     'request_max_redirects' => 10,
     'http' => array(),
     'collect' => array(
@@ -725,6 +725,10 @@ function visitor_console($cli_args) {
         }
 
         $input['options']['cookiejar'] = $cookiejar_file;
+        break;
+
+      case '-t':
+        $input['options']['time_limit'] = intval(trim(array_shift($args)));
         break;
 
       default:
@@ -1123,7 +1127,7 @@ date_default_timezone_set('UTC');
 // Check for requirements first.
 visitor_requirements();
 
-// Read arguments and create the resulting visitor object.
+// Read arguments from CLI and create the resulting visitor object.
 $console = visitor_console($argv);
 
 if ($console['error']) {

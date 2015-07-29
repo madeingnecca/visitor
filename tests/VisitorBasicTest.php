@@ -51,6 +51,18 @@ class VisitorBasicTest extends VisitorTestBase {
 
     $this->assertFalse($console['visitor']['options']['cookies_enabled']);
     $this->assertEquals($console['visitor']['options']['cookiejar'], NULL);
+
+    $console = visitor_console(array(
+      'visitor.php',
+      '-f',
+      '%code %url',
+      '-t',
+      '100',
+      'http://www.google.it'
+    ));
+
+    $this->assertFalse($console['error']);
+    $this->assertEquals($console['visitor']['options']['time_limit'], 100);
   }
 
   public function testVisitorFormatString() {
