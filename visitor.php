@@ -39,6 +39,10 @@ function visitor_get_error($error_key) {
     case 'project_file_parse_error':
       $message = sprintf('Unable to parse project file "%s"', func_get_arg(1));
       break;
+
+    case 'cookiejar_write_error':
+      $message = sprintf('Unable to write cookiejar to "%s"', func_get_arg(1));
+      break;
   }
 
   return $message;
@@ -715,7 +719,12 @@ function visitor_console($cli_args) {
         break;
 
       case '--cookiejar':
-        $input['options']['cookiejar'] = trim(array_shift($args));
+        $cookiejar_file = trim(array_shift($args));
+        if ($cookiejar_file === basename($cookiejar_file)) {
+          $cookiejar_file = getcwd() . DIRECTORY_SEPARATOR . $cookiejar_file;
+        }
+
+        $input['options']['cookiejar'] = $cookiejar_file;
         break;
 
       default:
@@ -1091,7 +1100,11 @@ function visitor_run(&$visitor) {
 
   if ($options['cookiejar']) {
     if (visitor_cookiejar_write($visitor['cookiejar'], $options['cookiejar']) === FALSE) {
-      // @todo: handle error.
+      visitor_log($visitor, array(
+        'type' => 'warning',
+        'key' => 'cookiejar_write_error',
+        'message' => visitor_get_error('cookiejar_write_error', $options['cookiejar']),
+      ));
     }
   }
 }
