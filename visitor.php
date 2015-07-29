@@ -15,7 +15,8 @@ function visitor_show_usage($extra_error = NULL) {
   print "  -f: String to output whenever a new url is collected. \n";
   print "    Available variables: %url, %code, %content_type, %parent, %headers:<header_name_lowercase>\n";
   print "  -u: Authentication credentials, <user>:<pass>\n";
-  print "  --no-cookies: Prevent Visitor to store and send cookies.\n";
+  print "  --no-cookies: Tell Visitor not to store or send cookies.\n";
+  print "  --cookiejar: Path of the json file where all cookies found will be serialized. This option will not work if --no-cookies is on.\n";
   print "\n";
 }
 
@@ -721,6 +722,11 @@ function visitor_console($cli_args) {
         $start_url = trim($arg);
         break;
     }
+  }
+
+  // Cookiejar option cannot be set if cookies are disabled.
+  if (!$input['options']['cookies_enabled']) {
+    $input['options']['cookiejar'] = NULL;
   }
 
   if (!$input['error'] && !isset($start_url)) {

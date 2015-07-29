@@ -17,6 +17,40 @@ class VisitorBasicTest extends VisitorTestBase {
 
     $this->assertEquals($console['error']['key'], 'no_url');
     $this->assertEquals($console['error']['message'], visitor_get_error('no_url'));
+
+    $console = visitor_console(array(
+      'visitor.php',
+      '-f',
+      '%code %url',
+      'http://www.google.it'
+    ));
+
+    $this->assertFalse($console['error']);
+
+    $console = visitor_console(array(
+      'visitor.php',
+      '-f',
+      '%code %url',
+      '--cookiejar',
+      'cookiejar.json',
+      'http://www.google.it'
+    ));
+
+    $this->assertEquals($console['visitor']['options']['cookies_enabled'], visitor_default_options()['cookies_enabled']);
+    $this->assertEquals($console['visitor']['options']['cookiejar'], 'cookiejar.json');
+
+    $console = visitor_console(array(
+      'visitor.php',
+      '-f',
+      '%code %url',
+      '--no-cookies',
+      '--cookiejar',
+      'cookiejar.json',
+      'http://www.google.it'
+    ));
+
+    $this->assertFalse($console['visitor']['options']['cookies_enabled']);
+    $this->assertEquals($console['visitor']['options']['cookiejar'], NULL);
   }
 
   public function testVisitorFormatString() {
