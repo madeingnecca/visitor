@@ -37,7 +37,7 @@ class VisitorBasicTest extends VisitorTestBase {
     ));
 
     $this->assertEquals($console['visitor']['options']['cookies_enabled'], visitor_default_options()['cookies_enabled']);
-    $this->assertEquals($console['visitor']['options']['cookiejar'], 'cookiejar.json');
+    $this->assertEquals($console['visitor']['options']['cookiejar'], getcwd() . DIRECTORY_SEPARATOR . 'cookiejar.json');
 
     $console = visitor_console(array(
       'visitor.php',
