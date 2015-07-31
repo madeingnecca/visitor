@@ -197,8 +197,9 @@ function visitor_http_request($request) {
   $response['content_type'] = $content_type;
   $response['headers'] = $headers;
   $response['is_redirect'] = $is_redirect;
-  $response['url'] = $url;
   $response['cookies'] = $cookies;
+  $response['url'] = $url;
+  $response['url_info'] = visitor_parse_url($response['url']);
 
   // If a cookiejar was provided and we have cookies within the response,
   // import them inside the jar and then return the resulting jar as a property of the final response.
@@ -539,17 +540,16 @@ function visitor_collect_urls($page_html, $page_url, $options = array()) {
 
 function visitor_parse_relative_url($url, $from_info) {
   $from_path = $from_info['path'];
-  if (substr($from_path, 1) == '/') {
-    $from_base = $from_path;
-  }
-  else if (strpos($from_path, '.') === FALSE) {
-    $from_base = $from_path;
-  }
-  else {
-    $from_base = dirname($from_path);
-  }
 
   $from_root = $from_info['scheme'] . '://' . $from_info['host'];
+  if (isset($from_info['port'])) {
+    $from_root .= ':' . $from_info['port'];
+  }
+
+  $from_base = $from_path;
+  if (substr($from_path, -1) !== '/') {
+    $from_base = rtrim(dirname($from_path), '/') . '/';
+  }
 
   // Handle protocol-relative urls.
   if (substr($url, 0, 2) == '//') {
@@ -1084,7 +1084,9 @@ function visitor_run(&$visitor) {
       visitor_log_visit($visitor, $visit);
 
       if (in_array($response_target['code'], array(200, 404))) {
-        $do_fetch_body = (strpos($response_target['content_type'], 'text/html') === 0);
+        $fetch_allowed = ($options['allow_external'] || $response_target['url_info']['host'] === $start_info['host']);
+        $is_web_page = (strpos($response_target['content_type'], 'text/html') === 0);
+        $do_fetch_body = ($fetch_allowed && $is_web_page);
         
         if ($do_fetch_body) {
           $request_get = array_merge($options['http'], array(
@@ -1096,9 +1098,9 @@ function visitor_run(&$visitor) {
 
           $response_get = visitor_http_request($request_get);
 
-          $urls = visitor_collect_urls($response_get['data'], $response_get['url'], $options['collect']);
+          $urls = visitor_collect_urls($response_get['data'], $response_target['url'], $options['collect']);
 
-          $new_parents = array_merge($queue_item['parents'], array($response_get['url']));
+          $new_parents = array_merge($queue_item['parents'], array($response_target['url']));
           foreach ($urls as $collected) {
             $collected += array('parents' => $new_parents);
             $visitor['queue'][] = $collected;
@@ -1106,7 +1108,7 @@ function visitor_run(&$visitor) {
         }
       }
 
-      $visitor['visited'][$url] = $visit;
+      $visitor['visited'][$response_target['url']] = $visit;
     }
 
     // The url has been visited, so we don't want to collect it anymore.
