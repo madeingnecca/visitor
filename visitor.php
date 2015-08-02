@@ -778,7 +778,7 @@ function visitor_console($cli_args, $options = array()) {
     $input['options']['cookiejar'] = NULL;
   }
 
-  if (!$input['error'] && !isset($start_url)) {
+  if (!$input['error'] && !isset($start_url) && !isset($project_file)) {
     $input['error'] = array('key' => 'no_url', 'message' => visitor_get_error('no_url'));
   }
 
@@ -798,7 +798,7 @@ function visitor_console($cli_args, $options = array()) {
       }
       else {
         $console['visitor'] = $project['visitor'];
-        $console['visitor']['options'] = array_merge($console['visitor']['options'], $input['options']);
+        $console['visitor']['options'] = array_merge($input['options'], $console['visitor']['options']);
       }
     }
     else {
@@ -836,8 +836,11 @@ function visitor_project_load_file($project_file) {
     return $project;
   }
 
+  $json += array('options' => array());
+
   $project['name'] = $json['name'];
   $project['visitor'] = visitor_create($json['start_url'], $json['options']);
+
   return $project;
 }
 
