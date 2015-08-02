@@ -11,7 +11,8 @@ function visitor_show_usage($extra_error = NULL) {
   }
 
   print "Usage: \n";
-  print $argv[0] . " [-f -u -p --no-cookies] <url>\n";
+  print $argv[0] . " [--help -f -u --project --no-cookies --cookiejar] <url>\n";
+  print " --help: Print this message.\n";
   print "  -f: String to output whenever Visitor \"visits\" a new url. \n";
   print "    Available variables: %url, %code, %content_type, %parent, %headers:<header_name_lowercase>\n";
   print "  -u: Authentication credentials, <user>:<pass>\n";
@@ -720,8 +721,9 @@ function visitor_default_options() {
 /**
  * Read argument from a list of parsed command line options.
  */
-function visitor_console($cli_args) {
+function visitor_console($cli_args, $options = array()) {
   $args = $cli_args;
+  $options += array('silent' => FALSE);
 
   // Remove script name.
   array_shift($args);
@@ -732,6 +734,10 @@ function visitor_console($cli_args) {
 
   while ((($arg = array_shift($args)) !== NULL) && !$input['error']) {
     switch ($arg) {
+      case '--help':
+        visitor_show_usage();
+        return;
+
       case '--project':
         $project_file = getcwd() . '/visitor.json';
         break;
@@ -798,6 +804,11 @@ function visitor_console($cli_args) {
     else {
       $console['visitor'] = visitor_create($start_url, $input['options']);
     }
+  }
+
+  if ($console['error'] && !$options['silent']) {
+    visitor_show_usage($console['error']['message']);
+    exit(1);
   }
 
   return $console;
@@ -1161,12 +1172,11 @@ visitor_requirements();
 // Read arguments from CLI and create the resulting visitor object.
 $console = visitor_console($argv);
 
-if ($console['error']) {
-  visitor_show_usage($console['error']['message']);
-  exit(1);
+// Ensure a console object was created.
+// In case a user just wants to show a help message, the console object won't be created.
+if (isset($console) && !$console['error']) {
+  $visitor = $console['visitor'];
+
+  // Run, run, run, as fast as you can.
+  visitor_run($visitor);
 }
-
-$visitor = $console['visitor'];
-
-// Run, run, run, as fast as you can.
-visitor_run($visitor);
