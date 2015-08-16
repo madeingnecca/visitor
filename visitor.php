@@ -709,7 +709,7 @@ function visitor_css_to_xpath($css) {
 
 function visitor_default_options() {
   return array(
-    'allow_external' => FALSE,
+    'follow_external' => FALSE,
     'time_limit' => 30 * 60,
     'request_max_redirects' => 10,
     'http' => array(),
@@ -1115,7 +1115,7 @@ function visitor_run(&$visitor) {
       visitor_log_visit($visitor, $visit);
 
       if (in_array($response_target['code'], array(200, 404))) {
-        $fetch_allowed = ($options['allow_external'] || $response_target['url_info']['host'] === $start_info['host']);
+        $fetch_allowed = ($options['follow_external'] || $response_target['url_info']['host'] === $start_info['host']);
         $is_web_page = (strpos($response_target['content_type'], 'text/html') === 0);
         $do_fetch_body = ($fetch_allowed && $is_web_page);
         
