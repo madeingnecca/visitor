@@ -11,13 +11,15 @@ function visitor_show_usage($extra_error = NULL) {
   }
 
   print "Usage: \n";
-  print $argv[0] . " [--help -f -u --project --no-cookies --cookiejar] <url>\n";
+  print $argv[0] . " [--help -f -t -u --project --no-cookies --cookiejar] <url>\n";
   print " --help: Print this message.\n";
   print "  -f: String to output whenever Visitor \"visits\" a new url. \n";
   print "    Available variables: %url, %code, %content_type, %parent, %headers:<header_name_lowercase>\n";
+  print "  -t: Sets time limit, in seconds.\n";
   print "  -u: Authentication credentials, <user>:<pass>\n";
   print "  --no-cookies: Tell Visitor not to store or send cookies.\n";
-  print "  --cookiejar: Path of the json file where all cookies found will be serialized. This option will not work if --no-cookies is on.\n";
+  print "  --cookiejar: Path of the json file where all cookies found will be serialized to. This option will not work if \"--no-cookies\" flag is on.\n";
+  print "  --project: Read url and options from <CWD>/visitor.json file.\n";
   print "\n";
 }
 
