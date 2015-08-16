@@ -4,7 +4,7 @@ class VisitorBasicTest extends VisitorTestBase {
   public function testVisitorConsole() {
     $console = visitor_console(array(
       'visitor.php',
-    ));
+    ), array('silent' => TRUE));
 
     $this->assertEquals($console['error']['key'], 'no_url');
     $this->assertEquals($console['error']['message'], visitor_get_error('no_url'));
@@ -13,7 +13,7 @@ class VisitorBasicTest extends VisitorTestBase {
       'visitor.php',
       '-f',
       '%code %url'
-    ));
+    ), array('silent' => TRUE));
 
     $this->assertEquals($console['error']['key'], 'no_url');
     $this->assertEquals($console['error']['message'], visitor_get_error('no_url'));
@@ -23,7 +23,7 @@ class VisitorBasicTest extends VisitorTestBase {
       '-f',
       '%code %url',
       'http://www.google.it'
-    ));
+    ), array('silent' => TRUE));
 
     $this->assertFalse($console['error']);
 
@@ -34,7 +34,7 @@ class VisitorBasicTest extends VisitorTestBase {
       '--cookiejar',
       'cookiejar.json',
       'http://www.google.it'
-    ));
+    ), array('silent' => TRUE));
 
     $this->assertEquals($console['visitor']['options']['cookies_enabled'], visitor_default_options()['cookies_enabled']);
     $this->assertEquals($console['visitor']['options']['cookiejar'], getcwd() . DIRECTORY_SEPARATOR . 'cookiejar.json');
@@ -47,7 +47,7 @@ class VisitorBasicTest extends VisitorTestBase {
       '--cookiejar',
       'cookiejar.json',
       'http://www.google.it'
-    ));
+    ), array('silent' => TRUE));
 
     $this->assertFalse($console['visitor']['options']['cookies_enabled']);
     $this->assertEquals($console['visitor']['options']['cookiejar'], NULL);
@@ -59,7 +59,7 @@ class VisitorBasicTest extends VisitorTestBase {
       '-t',
       '100',
       'http://www.google.it'
-    ));
+    ), array('silent' => TRUE));
 
     $this->assertFalse($console['error']);
     $this->assertEquals($console['visitor']['options']['time_limit'], 100);
