@@ -6,7 +6,8 @@ function visitor_show_usage($extra_error = NULL) {
   global $argv;
 
   if (isset($extra_error)) {
-    print "Fatal error: $extra_error\n";
+    print "Fatal error:\n";
+    print "  $extra_error\n";
     print "\n";
   }
 
@@ -33,6 +34,10 @@ function visitor_get_error($error_key) {
 
     case 'time_limit_reached':
       $message = sprintf('Time limit of %s seconds was reached. Last visited page was: "%s"', func_get_arg(1), func_get_arg(2));
+      break;
+
+    case 'invalid_project_file':
+      $message = sprintf('Project file does not exist: "%s"', func_get_arg(1));
       break;
 
     case 'project_file_not_readable':
@@ -735,6 +740,12 @@ function visitor_console($cli_args, $options = array()) {
   $input['options'] = visitor_default_options();
 
   while ((($arg = array_shift($args)) !== NULL) && !$input['error']) {
+    // Long options could be passed in the form --LONG_OPT=VALUE.
+    if (preg_match('/(--[^=]+)=(.+)/', $arg, $matches)) {
+      $arg = $matches[1];
+      array_unshift($args, $matches[2]);
+    }
+
     switch ($arg) {
       case '--help':
         visitor_show_usage();
@@ -742,6 +753,10 @@ function visitor_console($cli_args, $options = array()) {
 
       case '--project':
         $project_file = getcwd() . '/visitor.json';
+        break;
+
+      case '--project-file':
+        $project_file = trim(array_shift($args));
         break;
 
       case '-f':
@@ -785,7 +800,7 @@ function visitor_console($cli_args, $options = array()) {
   }
 
   if (!$input['error'] && isset($project_file) && !file_exists($project_file)) {
-    $input['error'] = array('key' => 'no_project_file', 'message' => visitor_get_error('no_project_file'));
+    $input['error'] = array('key' => 'invalid_project_file', 'message' => visitor_get_error('invalid_project_file', $project_file));
   }
 
   $console = array();
