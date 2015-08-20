@@ -694,6 +694,61 @@ function visitor_format_string($format, $data) {
   return $result;
 }
 
+function visitor_url_can_be_collected($url, $options = array()) {
+  $options += array(
+    'internal' => array(),
+    'allow_external' => TRUE,
+    'exclude' => array(),
+  );
+
+  $url_info = visitor_parse_url($url);
+
+  $is_internal = (in_array($url_info['host'], $options['internal']));
+
+  $check = array(
+    'status' => TRUE,
+    'is_internal' => $is_internal,
+  );
+
+  if (!$options['allow_external'] && !$is_internal) {
+    $check['status'] = FALSE;
+    $check['error'] = array(
+      'key' => 'external_not_allowed',
+      'message' => visitor_get_error('external_not_allowed', $url),
+    );
+    return $check;
+  }
+
+  $pass = TRUE;
+
+  foreach ($options['exclude'] as $exclude_rule) {
+    if ($exclude_rule['type'] == 'path') {
+      if ($is_internal) {
+        if (strpos($collected['url_info']['path'], $exclude_rule['path']) !== FALSE) {
+          $pass = FALSE;
+        }
+      }
+    }
+    else if ($exclude_rule['type'] == 'domain') {
+      if ($exclude_rule['domain'] == $collected['url_info']['host']) {
+        $pass = FALSE;
+      }
+    }
+
+    if (!$pass) {
+      $check['status'] = FALSE;
+      $check['error'] = array(
+        'key' => 'excluded_by_rule',
+        'rule' => $exclude_rule,
+        'message' => visitor_get_error('excluded_by_rule', $url, $exclude_rule),
+      );
+      return $check;
+    }
+  }
+
+  return $check;
+}
+
 function visitor_css_to_xpath($css) {
   static $cache;
   if (!isset($cache[$css])) {
@@ -709,9 +764,13 @@ function visitor_css_to_xpath($css) {
 
 function visitor_default_options() {
   return array(
-    'follow_external' => FALSE,
+    'internal' => array(),
+    'allow_external' => TRUE,
+    'crawl_external' => FALSE,
+    'exclude' => array(),
     'time_limit' => 30 * 60,
     'request_max_redirects' => 10,
+    'crawlable_response_codes' => array(200, 404),
     'http' => array(),
     'collect' => array(
       'tags' => array(
@@ -964,8 +1023,6 @@ function visitor_timer_destroy(&$visitor, $timer_name) {
 }
 
 function visitor_run(&$visitor) {
-  $options = $visitor['options'];
-
   $start_url = $visitor['start_url'];
   $start_info = visitor_parse_url($start_url);
 
@@ -973,6 +1030,11 @@ function visitor_run(&$visitor) {
   $visitor['queue'][] = array('url' => $start_url, 'url_info' => $start_info);
 
   $visitor['error'] = FALSE;
+
+  $visitor['options']['internal'][] = $start_info['host'];
+
+  // Cache a reference to visitor options.
+  $options = &$visitor['options'];
 
   // Ensure queue can be dispatched successfully without raising timelimit errors.
   set_time_limit(0);
@@ -1112,16 +1174,17 @@ function visitor_run(&$visitor) {
 
     if ($response_target !== FALSE) {
       $visit += $response_target;
+      $visit['is_internal'] = (in_array($visit['url_info']['host'], $options['internal']));
       visitor_log_visit($visitor, $visit);
 
-      if (in_array($response_target['code'], array(200, 404))) {
-        $fetch_allowed = ($options['follow_external'] || $response_target['url_info']['host'] === $start_info['host']);
-        $is_web_page = (strpos($response_target['content_type'], 'text/html') === 0);
-        $do_fetch_body = ($fetch_allowed && $is_web_page);
+      if (in_array($visit['code'], $options['crawlable_response_codes'])) {
+        $crawl_allowed = ($options['crawl_external'] || $visit['is_internal']);
+        $is_web_page = (strpos($visit['content_type'], 'text/html') === 0);
+        $do_crawl = ($crawl_allowed && $is_web_page);
         
-        if ($do_fetch_body) {
+        if ($do_crawl) {
           $request_get = array_merge($options['http'], array(
-            'url' => $response_target['url'],
+            'url' => $visit['url'],
             'method' => 'GET',
             'follow_redirects' => FALSE,
             'cookiejar' => ($options['cookies_enabled'] ? $visitor['cookiejar'] : NULL)
@@ -1129,21 +1192,34 @@ function visitor_run(&$visitor) {
 
           $response_get = visitor_http_request($request_get);
 
-          $urls = visitor_collect_urls($response_get['data'], $response_target['url'], $options['collect']);
+          $urls = visitor_collect_urls($response_get['data'], $visit['url'], $options['collect']);
 
-          $new_parents = array_merge($queue_item['parents'], array($response_target['url']));
+          $new_parents = array_merge($queue_item['parents'], array($visit['url']));
+
           foreach ($urls as $collected) {
-            $collected += array('parents' => $new_parents);
-            $visitor['queue'][] = $collected;
+            $check = visitor_url_can_be_collected($url, array(
+              'internal' => $options['internal'],
+              'allow_external' => $options['allow_external'],
+              'exclude' => $options['exclude'],
+            ));
+
+            if ($check['status']) {
+              $collected['is_internal'] = $check['is_internal'];
+              $collected['parents'] = $new_parents;
+              $visitor['queue'][] = $collected;
+            }
           }
         }
       }
 
-      $visitor['visited'][$response_target['url']] = $visit;
+      $visitor['visited'][$visit['url']] = $visit;
     }
 
-    // The url has been visited, so we don't want to collect it anymore.
+    // Remember the visited urls.
     $options['collect']['exclude'][] = $url;
+    if ($url != $visit['url']) {
+      $options['collect']['exclude'][] = $visit['url'];
+    }
 
     visitor_timer_tick($visitor, 'queue');
 
