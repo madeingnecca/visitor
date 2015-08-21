@@ -694,7 +694,7 @@ function visitor_format_string($format, $data) {
   return $result;
 }
 
-function visitor_url_can_be_collected($url, $options = array()) {
+function visitor_url_can_be_visited($url, $options = array()) {
   $options += array(
     'internal' => array(),
     'allow_external' => TRUE,
@@ -719,30 +719,29 @@ function visitor_url_can_be_collected($url, $options = array()) {
     return $check;
   }
 
-  $pass = TRUE;
-
+  $rule_passes = TRUE;
   foreach ($options['exclude'] as $exclude_rule) {
     if ($exclude_rule['type'] == 'path') {
       if ($is_internal) {
         if (strpos($collected['url_info']['path'], $exclude_rule['path']) !== FALSE) {
-          $pass = FALSE;
+          $rule_passes = FALSE;
         }
       }
     }
     else if ($exclude_rule['type'] == 'domain') {
       if ($exclude_rule['domain'] == $collected['url_info']['host']) {
-        $pass = FALSE;
+        $rule_passes = FALSE;
       }
     }
 
-    if (!$pass) {
+    if (!$rule_passes) {
       $check['status'] = FALSE;
       $check['error'] = array(
         'key' => 'excluded_by_rule',
         'rule' => $exclude_rule,
         'message' => visitor_get_error('excluded_by_rule', $url, $exclude_rule),
       );
-      return $check;
+      break;
     }
   }
 
@@ -811,11 +810,11 @@ function visitor_console($cli_args, $options = array()) {
         return;
 
       case '--project':
-        $project_file = getcwd() . '/visitor.json';
+        $input['project_file'] = getcwd() . '/visitor.json';
         break;
 
       case '--project-file':
-        $project_file = trim(array_shift($args));
+        $input['project_file'] = trim(array_shift($args));
         break;
 
       case '-f':
@@ -844,7 +843,7 @@ function visitor_console($cli_args, $options = array()) {
         break;
 
       default:
-        $start_url = trim($arg);
+        $input['start_url'] = trim($arg);
         break;
     }
   }
@@ -854,20 +853,21 @@ function visitor_console($cli_args, $options = array()) {
     $input['options']['cookiejar'] = NULL;
   }
 
-  if (!$input['error'] && !isset($start_url) && !isset($project_file)) {
+  if (!$input['error'] && !isset($input['start_url']) && !isset($input['project_file'])) {
     $input['error'] = array('key' => 'no_url', 'message' => visitor_get_error('no_url'));
   }
 
-  if (!$input['error'] && isset($project_file) && !file_exists($project_file)) {
+  if (!$input['error'] && isset($input['project_file']) && !file_exists($input['project_file'])) {
     $input['error'] = array('key' => 'invalid_project_file', 'message' => visitor_get_error('invalid_project_file', $project_file));
   }
 
   $console = array();
   $console['error'] = $input['error'];
+  $console['input'] = $input;
 
   if ($input['error'] === FALSE) {
-    if (isset($project_file)) {
-      $project = visitor_project_load_file($project_file);
+    if (isset($input['project_file'])) {
+      $project = visitor_project_load_file($input['project_file']);
 
       if ($project['error']) {
         $console['error'] = $project['error'];
@@ -878,7 +878,7 @@ function visitor_console($cli_args, $options = array()) {
       }
     }
     else {
-      $console['visitor'] = visitor_create($start_url, $input['options']);
+      $console['visitor'] = visitor_create($input['start_url'], $input['options']);
     }
   }
 
@@ -1197,7 +1197,7 @@ function visitor_run(&$visitor) {
           $new_parents = array_merge($queue_item['parents'], array($visit['url']));
 
           foreach ($urls as $collected) {
-            $check = visitor_url_can_be_collected($url, array(
+            $check = visitor_url_can_be_visited($url, array(
               'internal' => $options['internal'],
               'allow_external' => $options['allow_external'],
               'exclude' => $options['exclude'],
