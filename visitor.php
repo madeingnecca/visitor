@@ -1060,50 +1060,66 @@ function visitor_run(&$visitor) {
 
     // Try to fetch with HEAD first. In this way if the file is not a web page we avoid
     // the download of unnecessary data.
-    $response_target = FALSE;
+    $next_item = array(
+      'name' => 'request_head',
+      'request' => array_merge($options['http'], array(
+        'url' => $url,
+        'method' => 'HEAD',
+        'follow_redirects' => FALSE,
+        'cookiejar' => ($options['cookies_enabled'] ? $visitor['cookiejar'] : NULL)
+      )),
+    );
 
-    $request_head = array_merge($options['http'], array(
-      'url' => $url,
-      'method' => 'HEAD',
-      'follow_redirects' => FALSE,
-      'cookiejar' => ($options['cookies_enabled'] ? $visitor['cookiejar'] : NULL)
-    ));
+    $final_res = FALSE;
+    $redirects_count = 0;
+    $touched_urls = array();
+    
+    while (isset($next_item)) {
+      $cur_item = $next_item;
+      $request = &$cur_item['request'];
 
-    $response_head = visitor_http_request($request_head);
+      $response = visitor_http_request($request);
 
-    if (isset($response_head['cookiejar'])) {
-      $visitor['cookiejar'] = $response_head['cookiejar'];
-    }
+      $touched_urls[] = $request['url'];
 
-    if ($response_head['error']) {
-      visitor_log($visitor, array(
-        'type' => 'error', 
-        'key' => $response_head['error'],
-        'message' => visitor_get_error($response_head['error'], $url),
-      ));
-    }
-    else if ($response_head['is_redirect']) {
-      $response_redirect = $response_head;
-      $redirects_count = 1;
+      if (isset($response['cookiejar'])) {
+        $visitor['cookiejar'] = $response['cookiejar'];
+      }
 
-      visitor_log($visitor, array(
-        'type' => 'redirect',
-        'data' => $response_redirect + $visit,
-      ));
-
-      do {
-        $request_redirect = array_merge($options['http'], array(
-          'url' => $response_redirect['redirect_url'],
-          'method' => 'HEAD',
-          'follow_redirects' => FALSE,
-          'cookiejar' => ($options['cookies_enabled'] ? $visitor['cookiejar'] : NULL)
+      if ($response['error']) {
+        visitor_log($visitor, array(
+          'type' => 'error', 
+          'key' => $response['error'],
+          'message' => visitor_get_error($response['error'], $url),
         ));
 
-        $response_redirect = visitor_http_request($request_redirect);
+        // Exit loop in case of errors.
+        break;
+      }
+      else if ($response['code'] == 405 && $request['method'] == 'HEAD') {
+        $next_item = array();
 
-        if (isset($response_redirect['cookiejar'])) {
-          $visitor['cookiejar'] = $response_redirect['cookiejar'];
+        if ($cur_item['name'] == 'request_head') {
+          $next_item['name'] = 'request_get';
         }
+        else if (strpos($cur_item['name'], 'redirect_') === 0) {
+          $next_item['name'] = preg_replace_callback('/^redirect_(\d+)_(.+)+/', function($matches) {
+            return 'redirect_' . (intval($matches[1]) + 1) . '_get';
+          }, $cur_item['name']);
+        }
+
+        $next_item['request'] = $request;
+        $next_item['request']['method'] = 'GET';
+      }
+      else if ($response['is_redirect']) {
+        $redirects_count++;
+
+        visitor_log($visitor, array(
+          'type' => 'redirect',
+          'data' => $response + $visit,
+        ));
+
+        visitor_timer_tick($visitor, 'queue');
 
         if ($redirects_count > $options['request_max_redirects']) {
           visitor_log($visitor, array(
@@ -1118,62 +1134,41 @@ function visitor_run(&$visitor) {
           // Stop following redirects.
           break;
         }
-        else if ($response_redirect['is_redirect']) {
-          $redirects_count++;
 
+        if (visitor_timer_expired($visitor, 'queue')) {
           visitor_log($visitor, array(
-            'type' => 'redirect',
-            'data' => $response_redirect + $visit,
-          ));
-
-          visitor_timer_tick($visitor, 'queue');
-
-          if (visitor_timer_expired($visitor, 'queue')) {
-            visitor_log($visitor, array(
-              'type' => 'error',
-              'key' => 'time_limit_reached',
-              'data' => array(
-                'time_limit' => $options['time_limit'],
-                'last_url' => $url,
-              ),
-              'message' => visitor_get_error('time_limit_reached', $options['time_limit'], $url)
-            ));
-
-            $visitor['error'] = 'time_limit_reached';
-            break;
-          }
-          else {
-            // Keep following redirects.
-            continue;
-          }
-        }
-        else if ($response_redirect['error']) {
-          visitor_log($visitor, array(
-            'type' => 'error', 
-            'key' => $response_redirect['error'],
+            'type' => 'error',
+            'key' => 'time_limit_reached',
             'data' => array(
-              'url' => $url,
+              'time_limit' => $options['time_limit'],
+              'last_url' => $url,
             ),
-            'message' => visitor_get_error($response_redirect['error'], $url),
+            'message' => visitor_get_error('time_limit_reached', $options['time_limit'], $url)
           ));
 
-          // Exit loop.
+          $visitor['error'] = 'time_limit_reached';
           break;
         }
-        else {
-          // All other cases: 200, 404, 500, but not redirect status, nor internal errors.
-          $response_target = $response_redirect;
-          break;
-        }
+
+        $next_item = array();
+        $next_item['name'] = 'redirect_' . $redirects_count . '_head';
+        $next_item['request'] = array_merge($options['http'], array(
+          'url' => $response['redirect_url'],
+          'method' => 'HEAD',
+          'follow_redirects' => FALSE,
+          'cookiejar' => ($options['cookies_enabled'] ? $visitor['cookiejar'] : NULL)
+        ));
       }
-      while (1);
-    }
-    else {
-      $response_target = $response_head;
+      else {
+        // Successful response.
+        $final_req = $cur_item;
+        $final_res = $response;
+        $next_item = NULL;
+      }
     }
 
-    if ($response_target !== FALSE) {
-      $visit += $response_target;
+    if ($final_res !== FALSE) {
+      $visit += $final_res;
       $visit['is_internal'] = (in_array($visit['url_info']['host'], $options['internal']));
       visitor_log_visit($visitor, $visit);
 
@@ -1212,13 +1207,12 @@ function visitor_run(&$visitor) {
         }
       }
 
-      $visitor['visited'][$visit['url']] = $visit;
-    }
+      $visitor['visited'][$visit['url']] = &$visit;
 
-    // Remember the visited urls.
-    $options['collect']['exclude'][] = $url;
-    if ($url != $visit['url']) {
-      $options['collect']['exclude'][] = $visit['url'];
+      // Remember the visited urls.
+      foreach ($touched_urls as $touched_url) {
+        $options['collect']['exclude'][] = $touched_url;
+      }
     }
 
     visitor_timer_tick($visitor, 'queue');
