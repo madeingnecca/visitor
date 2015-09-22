@@ -3,8 +3,6 @@
 define('VISITOR_HTTP_CODE_CONNECTION_TIMEDOUT', -1);
 
 function visitor_show_usage($extra_error = NULL) {
-  global $argv;
-
   if (isset($extra_error)) {
     print "Fatal error:\n";
     print "  $extra_error\n";
@@ -12,13 +10,13 @@ function visitor_show_usage($extra_error = NULL) {
   }
 
   print "Usage: \n";
-  print $argv[0] . " [--help -f -t -u --project --no-cookies --cookiejar] <url>\n";
-  print " --help: Print this message.\n";
+  print "visitor [--help -f -t -u --project --no-cookies --cookiejar] <url>\n";
+  print "  --help: Print this message.\n";
   print "  -f: String to output whenever Visitor \"visits\" a new url. \n";
   print "    Available variables: %url, %code, %content_type, %parent, %headers:<header_name_lowercase>\n";
   print "  -t: Sets time limit, in seconds.\n";
   print "  -u: Authentication credentials, <user>:<pass>\n";
-  print "  --no-cookies: Tell Visitor not to store or send cookies.\n";
+  print "  --no-cookies: Tell Visitor not to store nor send cookies.\n";
   print "  --cookiejar: Path of the json file where all cookies found will be serialized to. This option will not work if \"--no-cookies\" flag is on.\n";
   print "  --project: Read url and options from <CWD>/visitor.json file.\n";
   print "\n";
@@ -89,8 +87,6 @@ function visitor_parse_url($url) {
 
 /**
  * Performs a http request.
- *
- * @todo: check for "cookiejar" option.
  */
 function visitor_http_request($request) {
   if (is_string($request) && func_num_args() === 2) {
@@ -512,6 +508,18 @@ function visitor_collect_urls($page_html, $page_url, $options = array()) {
     }
   }
 
+  // Relative urls will be resolved using the parent page.
+  // If a "base" tag is present, its value will be used instead.
+  $base_url_info = $url_info;
+  $base_tag = $dom->getElementsByTagName('base')->item(0);
+
+  if ($base_tag) {
+    $base_tag_href = $base_tag->getAttribute('href');
+    if ($base_tag_href) {
+      $base_url_info = visitor_parse_url((string) $base_tag_href);
+    }
+  }
+
   foreach ($found as $value) {
     $orig_value = $value;
 
@@ -519,7 +527,7 @@ function visitor_collect_urls($page_html, $page_url, $options = array()) {
       continue;
     }
 
-    $value_info = visitor_parse_relative_url($value, $url_info);
+    $value_info = visitor_parse_relative_url($value, $base_url_info);
 
     if ($value_info === FALSE) {
       continue;
