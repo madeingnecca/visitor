@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+SCRIPT=$(readlink "$0")
+DIR=$(dirname "$SCRIPT")
+php "$DIR/visitor.php" "$@"
