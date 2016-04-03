@@ -1215,10 +1215,9 @@ function visitor_run(&$visitor) {
         }
       }
 
-      $visitor['visited'][$visit['url']] = &$visit;
-
       // Remember the visited urls.
       foreach ($touched_urls as $touched_url) {
+        $visitor['visited'][$touched_url] = TRUE;
         $options['collect']['exclude'][] = $touched_url;
       }
     }
