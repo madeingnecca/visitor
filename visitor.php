@@ -729,15 +729,15 @@ function visitor_url_can_be_visited($url, $options = array()) {
 
   $rule_passes = TRUE;
   foreach ($options['exclude'] as $exclude_rule) {
-    if ($exclude_rule['type'] == 'path') {
+    if ($exclude_rule['type'] == 'starts_with') {
       if ($is_internal) {
-        if (strpos($collected['url_info']['path'], $exclude_rule['path']) !== FALSE) {
+        if (strpos($url, $exclude_rule['starts_with']) !== FALSE) {
           $rule_passes = FALSE;
         }
       }
     }
     else if ($exclude_rule['type'] == 'domain') {
-      if ($exclude_rule['domain'] == $collected['url_info']['host']) {
+      if ($exclude_rule['domain'] == $url_info['host']) {
         $rule_passes = FALSE;
       }
     }
@@ -1200,7 +1200,7 @@ function visitor_run(&$visitor) {
           $new_parents = array_merge($queue_item['parents'], array($visit['url']));
 
           foreach ($urls as $collected) {
-            $check = visitor_url_can_be_visited($url, array(
+            $check = visitor_url_can_be_visited($collected['url'], array(
               'internal' => $options['internal'],
               'allow_external' => $options['allow_external'],
               'exclude' => $options['exclude'],
