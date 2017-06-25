@@ -909,7 +909,7 @@ function visitor_project_load_file($project_file) {
     return $project;
   }
 
-  $json = json_decode($content, TRUE);
+  $json = json_decode(visitor_remove_json_comments($content), TRUE);
   if ($json === NULL) {
     $project['error'] = array(
       'key' => 'project_file_parse_error',
@@ -924,6 +924,18 @@ function visitor_project_load_file($project_file) {
   $project['visitor'] = visitor_create($json['start_url'], $json['options']);
 
   return $project;
+}
+
+function visitor_remove_json_comments($content) {
+  $remove_line_comment = function($line) {
+    return preg_replace('@^\\s*//.*$@', '', $line);
+  };
+
+  $lines = preg_split('/\R/', $content);
+  $lines = array_map($remove_line_comment, $lines);
+  $lines = array_filter($lines);
+
+  return join(PHP_EOL, $lines);
 }
 
 function visitor_create($start_url, $options = NULL) {
