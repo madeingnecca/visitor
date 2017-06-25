@@ -729,11 +729,9 @@ function visitor_url_can_be_visited($url, $options = array()) {
 
   $rule_passes = TRUE;
   foreach ($options['exclude'] as $exclude_rule) {
-    if ($exclude_rule['type'] == 'starts_with') {
-      if ($is_internal) {
-        if (strpos($url, $exclude_rule['starts_with']) !== FALSE) {
-          $rule_passes = FALSE;
-        }
+    if ($exclude_rule['type'] == 'regex' && $is_internal) {
+      if (preg_match($exclude_rule['regex'], $url)) {
+        $rule_passes = FALSE;
       }
     }
     else if ($exclude_rule['type'] == 'domain') {
