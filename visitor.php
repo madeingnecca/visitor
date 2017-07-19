@@ -15,6 +15,7 @@ function visitor_show_usage($extra_error = NULL) {
   print "  -f: String to output whenever Visitor \"visits\" a new url. \n";
   print "    Available variables: %url, %code, %content_type, %parent, %headers:<header_name_lowercase>\n";
   print "  -t: Sets time limit, in seconds.\n";
+  print "  -d: Sets depth limit.\n";
   print "  -u: Authentication credentials, <user>:<pass>\n";
   print "  --no-cookies: Tell Visitor not to store nor send cookies.\n";
   print "  --cookiejar: Path of the json file where all cookies found will be serialized to. This option will not work if \"--no-cookies\" flag is on.\n";
