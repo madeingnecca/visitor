@@ -773,6 +773,7 @@ function visitor_default_options() {
     'allow_external' => TRUE,
     'crawl_external' => FALSE,
     'exclude' => array(),
+    'max_depth' => FALSE,
     'time_limit' => 30 * 60,
     'request_max_redirects' => 10,
     'crawlable_response_codes' => array(200, 404),
@@ -846,6 +847,10 @@ function visitor_console($cli_args, $options = array()) {
 
       case '-t':
         $input['options']['time_limit'] = intval(trim(array_shift($args)));
+        break;
+
+      case '-d':
+        $input['options']['max_depth'] = intval(trim(array_shift($args)));
         break;
 
       default:
@@ -1193,7 +1198,8 @@ function visitor_run(&$visitor) {
       if (in_array($visit['code'], $options['crawlable_response_codes'])) {
         $crawl_allowed = ($options['crawl_external'] || $visit['is_internal']);
         $is_web_page = (strpos($visit['content_type'], 'text/html') === 0);
-        $do_crawl = ($crawl_allowed && $is_web_page);
+        $max_depth_reached = ($options['max_depth'] !== FALSE && count($queue_item['parents']) >= $options['max_depth']);
+        $do_crawl = ($crawl_allowed && $is_web_page && !$max_depth_reached);
         
         if ($do_crawl) {
           $request_get = array_merge($options['http'], array(
