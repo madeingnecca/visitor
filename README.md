@@ -37,6 +37,7 @@ visitor [--help -f -t -u --project --no-cookies --cookiejar] &lt;url&gt;
   -f: String to output whenever Visitor "visits" a new url.
     Available variables: %url, %code, %content_type, %parent, %headers:&lt;header_name_lowercase&gt;
   -t: Sets time limit, in seconds.
+  -t: Sets depth limit.
   -u: Authentication credentials, &lt;user&gt;:&lt;pass&gt;
   --no-cookies: Tell Visitor not to store nor send cookies.
   --cookiejar: Path of the json file where all cookies found will be serialized to. This option will not work if "--no-cookies" flag is on.
