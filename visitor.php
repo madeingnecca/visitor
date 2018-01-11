@@ -870,7 +870,7 @@ function visitor_console($cli_args, $options = array()) {
   }
 
   if (!$input['error'] && isset($input['project_file']) && !file_exists($input['project_file'])) {
-    $input['error'] = array('key' => 'invalid_project_file', 'message' => visitor_get_error('invalid_project_file', $project_file));
+    $input['error'] = array('key' => 'invalid_project_file', 'message' => visitor_get_error('invalid_project_file', $input['project_file']));
   }
 
   $console = array();
