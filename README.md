@@ -37,12 +37,28 @@ visitor [--help -f -t -u --project --no-cookies --cookiejar] &lt;url&gt;
   -f: String to output whenever Visitor "visits" a new url.
     Available variables: %url, %code, %content_type, %parent, %headers:&lt;header_name_lowercase&gt;
   -t: Sets time limit, in seconds.
-  -t: Sets depth limit.
+  -d: Sets depth limit.
   -u: Authentication credentials, &lt;user&gt;:&lt;pass&gt;
   --no-cookies: Tell Visitor not to store nor send cookies.
   --cookiejar: Path of the json file where all cookies found will be serialized to. This option will not work if "--no-cookies" flag is on.
   --project: Read url and options from &lt;CWD&gt;/visitor.json file.
 </pre>
+
+DTF setup
+=========
+
+Cron job to run every day at 11.30pm
+
+<pre>30 23 * * * /usr/bin/visitor https://www.dtf.vic.gov.au > /home/centos/link-checker/logs/dtf-today.txt</pre>
+
+Note: the above cron job has been setup on the AWS server (<code>13.210.214.84</code>)
+
+When run, the script does the following:
+
+1. Check for all links on DTF
+2. Save all links with their status NOT match 200 to a text file <code>dtf-today.txt</code>
+3. Do a diff check of the above file agaist the yesterday file, <code>dtif-yesterday.txt</code>
+4. Email the diff file to <code>sdp.devs@dpc.vic.gov.au</code>
 
 ### Project file
 

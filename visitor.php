@@ -1,5 +1,12 @@
 <?php
 
+$time_start = microtime(true);
+
+use PHPMailer\PHPMailer\PHPMailer;
+use PHPMailer\PHPMailer\Exception;
+
+require __DIR__ . '/vendor/autoload.php';
+
 define('VISITOR_HTTP_CODE_CONNECTION_TIMEDOUT', -1);
 
 function visitor_show_usage($extra_error = NULL) {
@@ -104,7 +111,7 @@ function visitor_http_request($request) {
     'user_agent' => 'Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.8.1.13) Gecko/20080311 Firefox/2.0.0.13',
     'max_redirects' => 15,
     'follow_redirects' => TRUE,
-    'connection_timeout' => 10,
+    'connection_timeout' => 5,
     'cookies' => array(),
     'cookiejar' => NULL,
   );
@@ -775,7 +782,7 @@ function visitor_default_options() {
     'crawl_external' => FALSE,
     'exclude' => array(),
     'max_depth' => FALSE,
-    'time_limit' => 30 * 60,
+    'time_limit' => 60 * 60 * 3,
     'request_max_redirects' => 10,
     'crawlable_response_codes' => array(200, 404),
     'http' => array(),
@@ -784,7 +791,7 @@ function visitor_default_options() {
         '*' => array('src', 'href')
       ),
     ),
-    'cookies_enabled' => TRUE,
+    'cookies_enabled' => FALSE,
     'cookiejar' => FALSE,
     'format' => 'code:%code url:%url parent:%parent',
     'print' => TRUE,
@@ -818,7 +825,7 @@ function visitor_console($cli_args, $options = array()) {
         return;
 
       case '--project':
-        $input['project_file'] = getcwd() . '/visitor.json';
+        $input['project_file'] = getcwd() . '/websites.json';
         break;
 
       case '--project-file':
@@ -971,22 +978,23 @@ function visitor_reset(&$visitor) {
 
 function visitor_log(&$visitor, $data) {
   $data += array('timestamp' => time());
-
   if ($visitor['options']['print']) {
-    switch ($data['type']) {
-      case 'visit':
-      case 'redirect':
-        print visitor_format_url($visitor['options']['format'], $data['data']);
-        print "\n";
-        break;
+      switch ($data['type']) {
+        case 'visit':
+        case 'redirect':
+        if (array_key_exists('code', $data['data']) && $data['data']['code'] != 200) {
+          print visitor_format_url($visitor['options']['format'], $data['data']);
+          print "\n";
+        }
+          break;
 
-      case 'error':
-      case 'warning':
-      default:
-        print strtoupper($data['type']) . ": " . $data['message'];
-        print "\n";
-        break;
-    }
+        case 'error':
+        case 'warning':
+        default:
+          print strtoupper($data['type']) . ": " . $data['message'];
+          print "\n";
+          break;
+      }
   }
   else {
     $visitor['log'][] = $data;
@@ -1293,4 +1301,52 @@ if (isset($console) && !$console['error']) {
 
   // Run, run, run, as fast as you can.
   visitor_run($visitor);
+
+  // Check for today and yesterday report
+  /* We are only interested in the diff result so no need to store the report by date
+  $yesterday_report = "logs/dtf-". date("d-m-Y", time() - 60 * 60 * 24) . '.txt';
+  $today_report = "logs/dtf-". date("d-m-Y") . '.txt';
+  $diff_report = "logs/dtf-diff-". date("d-m-Y") . '.txt';
+  */
+  $yesterday_report = 'logs/dtf-yesterday.txt';
+  $today_report = 'logs/dtf-today.txt';
+  $diff_report = 'logs/dtf-diff.txt';
+  $email_report = 'sdp.devs@dpc.vic.gov.au';
+
+  // Using Diff to compare report files
+  if (file_exists($yesterday_report) && file_exists($today_report)) {
+
+    $diff_command = "diff $today_report $yesterday_report > $diff_report";
+
+    exec($diff_command);
+
+    if (file_exists($diff_report)) {
+
+      $mail = new PHPMailer(true);
+      try {
+        $mail->setFrom('centos@ip-10-200-1-164.ap-southeast-2.compute.internal', 'sdp-prod-nginx-redirect');
+        $mail->addAddress($email_report);
+        $mail->addAttachment($diff_report);
+
+        $mail->Subject = 'DTF - link checker report';
+        $mail->Body    = 'Please find the attached diff report output from link checker';
+        $mail->AltBody = 'Please find the attached diff report output from link checker';
+
+        $mail->send();
+        echo "Email with report has been sent to $email_report \n";
+
+        // Next run is tomorrow so need to delete yesterday report file and rename today report file to yesterday
+        unlink($yesterday_report);
+        rename($today_report, $yesterday_report);
+
+      } catch (Exception $e) {
+        echo "Message could not be sent. Mailer Error: ", $mail->ErrorInfo;
+      }
+    }
+  }
 }
+
+$time_end = microtime(true);
+$time = $time_end - $time_start;
+
+echo "Process Time: {$time} \n";
