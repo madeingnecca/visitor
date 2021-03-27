@@ -12,9 +12,9 @@ Urls are collected by parsing the html response returned from the server: this m
 Installation
 ============
 
-Visitor is just a php script, so to execute it you just need to type:
+Visitor is just a php script, so to run it type:
 <pre>php visitor.php</pre>
-Alternatively Visitor is shipped with the <code>visitor</code> script, which just needs to be made executable to be run.
+Alternatively Visitor is shipped with the <code>visitor</code> script, which needs to be made executable to be run.
 <pre>
 chmod +x visitor
 ./visitor
@@ -46,7 +46,7 @@ visitor [--help -f -t -u --project --no-cookies --cookiejar] &lt;url&gt;
 
 ### Project file
 
-The "project file" is just a way to pass options via json, instead of writing all the options every time using the CLI syntax.
+The "project file" is a way to pass options via json, instead of writing all the options every time.
 
 We suggest storing the project file in the root directory of your web project, in order to let other team members run Visitor with ease, by just typing: <code>visitor --project</code>
 
@@ -55,5 +55,5 @@ Tests
 
 All features have been written as global functions to provide an easy way to test them.
 
-Tests are written with phpunit and to run them just type:
+Tests are written with phpunit, so to run them type:
 <pre>phpunit</pre>
