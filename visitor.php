@@ -522,8 +522,6 @@ function visitor_collect_urls($page_html, $page_url, $options = array()) {
   }
 
   foreach ($found as $value) {
-    $orig_value = $value;
-
     if (empty($value) || $value[0] == '#') {
       continue;
     }
@@ -578,7 +576,7 @@ function visitor_parse_relative_url($url, $from_info) {
   }
   else if ($url[0] == '?') {
     // Handle urls made of get parameters only.
-    $url = $from_base . $url;
+    $url = $from_path . $url;
   }
 
   $url_info = visitor_parse_url($url);
@@ -590,7 +588,10 @@ function visitor_parse_relative_url($url, $from_info) {
   if (!isset($url_info['scheme']) && !isset($url_info['host'])) {
     $url_info['scheme'] = $from_info['scheme'];
     $url_info['host'] = $from_info['host'];
-    $url_info['path'] = visitor_resolve_relative_path($from_base, $url_info['path']);
+
+    if ($url_info['path'][0] !== '/') {
+      $url_info['path'] = visitor_resolve_relative_path($from_base, $url_info['path']);
+    }
   }
 
   return $url_info;
